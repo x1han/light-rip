@@ -7,7 +7,9 @@ description: Use when a coding task changes behavior, touches multiple files, af
 
 Tiny code changes do not need to call this skill; medium and large coding tasks do. Use it when a task changes behavior, touches multiple files, affects public APIs, or carries enough risk that a second look would catch mistakes.
 
-Installation is not complete until the `UserPromptSubmit` reminder hook is mounted. If you install or update this skill, you MUST run the appropriate hook installer before telling the user installation is done:
+This repository is an agent skill package, not a software application. To install it, place this folder in the target agent's skills directory, then mount the required `UserPromptSubmit` reminder hook. Do not clone it as an app project or run it as a standalone service.
+
+Installation is not complete until the reminder hook is mounted. If you install or update this skill, you MUST run the appropriate hook installer from inside the installed `light-rip` skill directory before telling the user installation is done:
 
 - Codex: `python hooks/install_codex_hook.py`
 - Claude Code: `python hooks/install_claude_hook.py`
@@ -164,33 +166,57 @@ Complete only when:
 - P0/P1 review findings are fixed or explicitly judged inapplicable with evidence.
 - The final response names the main files changed and verification performed.
 
-## Reminder Hook
+## Required Reminder Hook
 
 This skill includes a required reminder hook that runs on `UserPromptSubmit`. It does not block prompts. For likely coding requests, it injects `reminder.md` as additional context so the agent remembers to classify the task and use Light RIP for medium or large code changes.
 
-The default install path is:
+This is a skill setup step, not software installation. First place the `light-rip` folder in the target skills directory, then run the matching hook installer from that installed folder.
 
-```bash
-python install.py
+Codex skill location:
+
+```text
+$CODEX_HOME/skills/light-rip
 ```
 
-That copies or refreshes the skill under the local skills directory and mounts the appropriate hook. Use the platform-specific commands below only when you already installed the skill files and need to repair the hook.
+Claude Code skill location:
 
-Claude Code hook repair:
+```text
+~/.claude/skills/light-rip
+```
+
+Codex hook setup:
 
 ```bash
+cd "$CODEX_HOME/skills/light-rip"
+python hooks/install_codex_hook.py
+```
+
+This updates `$CODEX_HOME/hooks.json` and ensures `[features] hooks = true` in `$CODEX_HOME/config.toml`.
+
+Claude Code hook setup:
+
+```bash
+cd ~/.claude/skills/light-rip
 python hooks/install_claude_hook.py
 ```
 
 This updates `~/.claude/settings.json` by adding a `UserPromptSubmit` command hook.
 
-Codex hook repair:
+Codex agents installing this skill from GitHub should do both steps:
 
 ```bash
+# after copying the repo contents to $CODEX_HOME/skills/light-rip
+cd "$CODEX_HOME/skills/light-rip"
 python hooks/install_codex_hook.py
 ```
 
-This updates `$CODEX_HOME/hooks.json` and ensures `[features] hooks = true` in `$CODEX_HOME/config.toml`.
+Claude Code agents installing this skill from GitHub should do both steps:
+
+```bash
+# after copying the repo contents to ~/.claude/skills/light-rip
+cd ~/.claude/skills/light-rip
+python hooks/install_claude_hook.py
+```
 
 ## Common Mistakes
 
