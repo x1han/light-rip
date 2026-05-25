@@ -1,6 +1,23 @@
-# Light RIP
+# 🪦 Light RIP
 
 Light RIP is an agent skill package, not a software application.
+
+`RIP` names the three safeguards in the skill: `Review`, `Implement`, and `Plan`. In execution, the lightweight loop runs as `Plan -> Implement -> Review`; the name keeps the three pieces memorable without turning them into a heavyweight process. Tiny code edits skip the loop.
+
+```mermaid
+flowchart LR
+    A["User prompt"] --> B{"Coding task size?"}
+    B -->|"Tiny edit"| C["Skip Light RIP"]
+    B -->|"Medium"| D["Plan inline"]
+    B -->|"Large or risky"| E["Planner pass"]
+    D --> F["Implement"]
+    E --> F
+    F --> G["Review"]
+    G --> H{"P0/P1 issues?"}
+    H -->|"Yes"| I["Fix + verify"]
+    I --> G
+    H -->|"No"| J["Done"]
+```
 
 Do not install it as an app, service, Python package, or normal project checkout. Install it by placing the `light-rip` folder in your agent's skills directory, then mount the required `UserPromptSubmit` reminder hook.
 
