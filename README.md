@@ -19,11 +19,30 @@ flowchart LR
     H -->|"No"| J["Done"]
 ```
 
+## Installation
+
 Do not install it as an app, service, Python package, or normal project checkout. Install it by placing the `light-rip` folder in your agent's skills directory, then mount the required `UserPromptSubmit` reminder hook.
 
 Installation is incomplete until the hook is mounted.
 
-## Codex
+### Claude Code
+
+Clone directly into the Claude Code skills directory, then run the required hook setup from that installed copy:
+
+```bash
+mkdir -p ~/.claude/skills
+git clone https://github.com/x1han/light-rip ~/.claude/skills/light-rip
+cd ~/.claude/skills/light-rip
+python hooks/install_claude_hook.py
+```
+
+This writes or updates:
+
+- `~/.claude/settings.json`
+
+Restart Claude Code after installing or updating the skill.
+
+### Codex
 
 Clone directly into the Codex skills directory, then run the required hook setup from that installed copy:
 
@@ -40,23 +59,6 @@ This writes or updates:
 - `$CODEX_HOME/config.toml`, ensuring `[features] hooks = true`
 
 Restart Codex after installing or updating the skill.
-
-## Claude Code
-
-Clone directly into the Claude Code skills directory, then run the required hook setup from that installed copy:
-
-```bash
-mkdir -p ~/.claude/skills
-git clone https://github.com/x1han/light-rip ~/.claude/skills/light-rip
-cd ~/.claude/skills/light-rip
-python hooks/install_claude_hook.py
-```
-
-This writes or updates:
-
-- `~/.claude/settings.json`
-
-Restart Claude Code after installing or updating the skill.
 
 ## What The Hook Does
 
