@@ -27,12 +27,14 @@ Installation is incomplete until the hook is mounted.
 
 ### Claude Code
 
+Claude Code documentation and community examples use `$HOME/.claude/skills` or `~/.claude/skills`. Claude Code does not define a standard `$CLAUDE_HOME` variable.
+
 Clone directly into the Claude Code skills directory, then run the required hook setup from that installed copy:
 
 ```bash
-mkdir -p ~/.claude/skills
-git clone https://github.com/x1han/light-rip ~/.claude/skills/light-rip
-cd ~/.claude/skills/light-rip
+mkdir -p "$HOME/.claude/skills"
+git clone https://github.com/x1han/light-rip "$HOME/.claude/skills/light-rip"
+cd "$HOME/.claude/skills/light-rip"
 python hooks/install_claude_hook.py
 ```
 
