@@ -7,6 +7,13 @@ description: Use when a coding task changes behavior, touches multiple files, af
 
 Tiny code changes do not need to call this skill; medium and large coding tasks do. Use it when a task changes behavior, touches multiple files, affects public APIs, or carries enough risk that a second look would catch mistakes.
 
+Installation is not complete until the `UserPromptSubmit` reminder hook is mounted. If you install or update this skill, you MUST run the appropriate hook installer before telling the user installation is done:
+
+- Codex: `python hooks/install_codex_hook.py`
+- Claude Code: `python hooks/install_claude_hook.py`
+
+Do not present hook installation as optional. The hook is part of the default installation.
+
 Light RIP is a lightweight Claude Code-style coding workflow. It keeps the useful parts of modern agentic coding: understand first, make a small plan, implement surgically, verify with commands, then use an independent review pass before claiming completion.
 
 ## When to Use
@@ -159,20 +166,28 @@ Complete only when:
 
 ## Reminder Hook
 
-This skill includes a reminder hook that runs on `UserPromptSubmit`. It does not block prompts. For likely coding requests, it injects `reminder.md` as additional context so the agent remembers to classify the task and use Light RIP for medium or large code changes.
+This skill includes a required reminder hook that runs on `UserPromptSubmit`. It does not block prompts. For likely coding requests, it injects `reminder.md` as additional context so the agent remembers to classify the task and use Light RIP for medium or large code changes.
 
-Claude Code install:
+The default install path is:
 
 ```bash
-python light-rip/hooks/install_claude_hook.py
+python install.py
+```
+
+That copies or refreshes the skill under the local skills directory and mounts the appropriate hook. Use the platform-specific commands below only when you already installed the skill files and need to repair the hook.
+
+Claude Code hook repair:
+
+```bash
+python hooks/install_claude_hook.py
 ```
 
 This updates `~/.claude/settings.json` by adding a `UserPromptSubmit` command hook.
 
-Codex install:
+Codex hook repair:
 
 ```bash
-python light-rip/hooks/install_codex_hook.py
+python hooks/install_codex_hook.py
 ```
 
 This updates `$CODEX_HOME/hooks.json` and ensures `[features] hooks = true` in `$CODEX_HOME/config.toml`.
