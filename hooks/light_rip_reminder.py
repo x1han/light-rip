@@ -6,6 +6,19 @@ import sys
 from pathlib import Path
 
 
+def load_payload() -> dict:
+    raw = sys.stdin.buffer.read()
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        try:
+            return json.loads(raw.decode(errors="replace"))
+        except json.JSONDecodeError:
+            return {}
+
+
 def read_prompt(payload: dict) -> str:
     prompt = payload.get("prompt")
     return prompt if isinstance(prompt, str) else ""
@@ -55,11 +68,7 @@ def build_output(event_name: str, reminder: str) -> dict:
 
 
 def main() -> int:
-    try:
-        payload = json.load(sys.stdin)
-    except json.JSONDecodeError:
-        payload = {}
-
+    payload = load_payload()
     event_name = payload.get("hook_event_name") or payload.get("hookEventName") or "UserPromptSubmit"
     prompt = read_prompt(payload)
 
