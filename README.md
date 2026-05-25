@@ -8,15 +8,11 @@ Installation is incomplete until the hook is mounted.
 
 ## Codex
 
-Install the skill files to:
-
-```text
-$CODEX_HOME/skills/light-rip
-```
-
-Then run the required hook setup from the installed skill directory:
+Clone directly into the Codex skills directory, then run the required hook setup from that installed copy:
 
 ```bash
+mkdir -p "$CODEX_HOME/skills"
+git clone https://github.com/x1han/light-rip "$CODEX_HOME/skills/light-rip"
 cd "$CODEX_HOME/skills/light-rip"
 python hooks/install_codex_hook.py
 ```
@@ -30,15 +26,11 @@ Restart Codex after installing or updating the skill.
 
 ## Claude Code
 
-Install the skill files to:
-
-```text
-~/.claude/skills/light-rip
-```
-
-Then run the required hook setup from the installed skill directory:
+Clone directly into the Claude Code skills directory, then run the required hook setup from that installed copy:
 
 ```bash
+mkdir -p ~/.claude/skills
+git clone https://github.com/x1han/light-rip ~/.claude/skills/light-rip
 cd ~/.claude/skills/light-rip
 python hooks/install_claude_hook.py
 ```
