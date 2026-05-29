@@ -2,21 +2,49 @@
 
 Light RIP is an agent skill package, not a software application.
 
-`RIP` names the three safeguards in the skill: `Review`, `Implement`, and `Plan`. In execution, the lightweight loop runs as `Plan -> Implement -> Review`; the name keeps the three pieces memorable without turning them into a heavyweight process. Tiny code edits skip the loop.
+`RIP` names the three safeguards in the skill: `Review`, `Implement`, and `Plan`. In execution, the lightweight loop runs as `Plan -> Implement -> Review`; the name keeps the three pieces memorable without turning them into a heavyweight process.
+
+Light RIP has exactly three tiers:
+
+- `Tiny`: the main session plans, implements, verifies, and self-reviews. No subagents.
+- `Medium`: the main session plans, implements, and verifies, then a reviewer subagent reviews the diff. The main session fixes review findings.
+- `Large`: planner, implementer, and reviewer are all subagents. The main session coordinates and fixes review findings.
 
 ```mermaid
 flowchart LR
     A["User prompt"] --> B{"Coding task size?"}
-    B -->|"Tiny edit"| C["Skip Light RIP"]
-    B -->|"Medium"| D["Plan inline"]
-    B -->|"Large or risky"| E["Planner pass"]
-    D --> F["Implement"]
-    E --> F
-    F --> G["Review"]
-    G --> H{"P0/P1 issues?"}
-    H -->|"Yes"| I["Fix + verify"]
-    I --> G
-    H -->|"No"| J["Done"]
+    B -->|"Tiny"| C["Main session: plan + implement + verify + self-review"]
+    B -->|"Medium"| D["Main session: plan + implement + verify"]
+    D --> E["Reviewer subagent"]
+    B -->|"Large"| F["Planner subagent"]
+    F --> G["Implementer subagent"]
+    G --> H["Reviewer subagent"]
+    E --> I["Main session fixes findings"]
+    H --> I
+    C --> J["Done"]
+    I --> K["Final verify"]
+    K --> J
+```
+
+Risk upgrades the tier:
+
+```mermaid
+flowchart LR
+    A["Risk: auth, payment, data migration, security, concurrency, public API, destructive writes, compliance"] --> B{"Base tier"}
+    B -->|"Tiny"| C["Upgrade to Medium"]
+    B -->|"Medium"| D["Upgrade to Large"]
+    B -->|"Large"| E["Stay Large; use stricter reviewer prompt"]
+```
+
+Review findings always return to the main session:
+
+```mermaid
+flowchart LR
+    A["Subagent review"] --> B{"P0/P1 findings?"}
+    B -->|"Yes"| C["Main session fixes"]
+    C --> D["Relevant verification"]
+    D --> A
+    B -->|"No"| E["Complete"]
 ```
 
 ## Installation
@@ -68,9 +96,10 @@ The hook runs on `UserPromptSubmit`. It does not block prompts.
 
 For likely coding requests, it injects `reminder.md` as additional context so the agent remembers:
 
-- tiny code edits do not need Light RIP
-- medium and large coding tasks should use Light RIP
-- risky tasks should use the stronger review path
+- tiny tasks stay in the main session and do not spawn subagents
+- medium tasks must spawn one reviewer subagent
+- large tasks must spawn planner, implementer, and reviewer subagents
+- risky tasks upgrade one tier
 
 For non-coding prompts, it stays quiet.
 
