@@ -26,15 +26,7 @@ flowchart LR
     K --> J
 ```
 
-Risk upgrades the tier:
-
-```mermaid
-flowchart LR
-    A["Risk: auth, payment, data migration, security, concurrency, public API, destructive writes, compliance"] --> B{"Base tier"}
-    B -->|"Tiny"| C["Upgrade to Medium"]
-    B -->|"Medium"| D["Upgrade to Large"]
-    B -->|"Large"| E["Stay Large; use stricter reviewer prompt"]
-```
+Risk upgrades the tier: risky tiny becomes medium, risky medium becomes large, and risky large stays large with stricter review.
 
 Review findings always return to the main session:
 
@@ -90,18 +82,9 @@ This writes or updates:
 
 Restart Codex after installing or updating the skill.
 
-## What The Hook Does
+## Hook Behavior
 
-The hook runs on `UserPromptSubmit`. It does not block prompts.
-
-For likely coding requests, it injects `reminder.md` as additional context so the agent remembers:
-
-- tiny tasks stay in the main session and do not spawn subagents
-- medium tasks must spawn one reviewer subagent
-- large tasks must spawn planner, implementer, and reviewer subagents
-- risky tasks upgrade one tier
-
-For non-coding prompts, it stays quiet.
+The required `UserPromptSubmit` hook is non-blocking. For likely coding requests, it injects `reminder.md` as additional context; for non-coding prompts, it stays quiet.
 
 ## Files
 
