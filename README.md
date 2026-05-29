@@ -26,17 +26,19 @@ flowchart LR
     K --> J
 ```
 
-Risk upgrades the tier: risky tiny becomes medium, risky medium becomes large, and risky large stays large with stricter review.
+Risk upgrades the tier: risky tiny becomes medium, risky medium becomes large, and risky large stays large while reviewers focus on the risk area.
 
-Review findings always return to the main session:
+Review findings always return to the main session. For nontrivial P1 fixes, do one short reviewer subagent re-review of the changed lines.
 
 ```mermaid
 flowchart LR
     A["Subagent review"] --> B{"P0/P1 findings?"}
     B -->|"Yes"| C["Main session fixes"]
     C --> D["Relevant verification"]
-    D --> A
-    B -->|"No"| E["Complete"]
+    D --> E{"Nontrivial P1 fix?"}
+    E -->|"Yes"| A
+    E -->|"No"| F["Complete"]
+    B -->|"No"| F
 ```
 
 ## Installation
@@ -66,9 +68,12 @@ Restart Claude Code after installing or updating the skill.
 
 ### Codex
 
+If `CODEX_HOME` is unset, Codex normally uses `$HOME/.codex`.
+
 Clone directly into the Codex skills directory, then run the required hook setup from that installed copy:
 
 ```bash
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 mkdir -p "$CODEX_HOME/skills"
 git clone https://github.com/x1han/light-rip "$CODEX_HOME/skills/light-rip"
 cd "$CODEX_HOME/skills/light-rip"
