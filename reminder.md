@@ -15,3 +15,9 @@ Required tiers:
 Upgrade one tier for auth, permissions, payment, data migration, security, concurrency, public API, destructive write, or compliance impact.
 
 If uncertain between tiny and medium, choose medium. If uncertain between medium and large, choose medium unless planning needs more than about 5 minutes or 5 files.
+
+Safety reminders:
+
+- Before writing generated code/config, check for transcript contamination: analysis text, tool-call fragments, malformed JSON repair chatter, placeholder junk, or random mixed-language tokens.
+- If proposed write content looks contaminated, discard that write and regenerate a minimal clean edit. Do not patch around contaminated text.
+- For Python edits, run `python -m py_compile` on changed files when practical.

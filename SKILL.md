@@ -36,6 +36,9 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 - Do not write a long spec unless the user asked for one.
 - Do not create commits, branches, or docs unless the user asked for them or the repo workflow requires them.
 - Reviewer subagents are read-only by default. They report issues; the main session fixes them.
+- Before writing generated code or config, check the proposed content for transcript contamination: analysis text, tool-call fragments, malformed JSON repair chatter, placeholder junk, or random mixed-language tokens.
+- If proposed write content looks contaminated, discard that write and regenerate a minimal clean edit. Do not try to patch around contaminated text.
+- When replacing existing source file content, inspect the proposed replacement for contamination before applying it; prefer minimal patch-style edits when available.
 - Verify before saying the work is complete.
 
 ## Flow
@@ -118,6 +121,8 @@ Rules:
 - Do not perform unrelated refactors.
 - Add or update focused tests when behavior changes.
 - Run the planned verification commands, or explain exactly why they cannot run.
+- Before writing generated code or config, check for transcript contamination or malformed tool-call repair text.
+- If proposed write content looks contaminated, discard it and regenerate a clean minimal edit.
 
 Return:
 - Changed files
@@ -141,6 +146,7 @@ Focus on:
 - requirement mismatches
 - bugs or regressions
 - missing or weak verification
+- generated-content contamination, including analysis text, tool-call repair chatter, malformed JSON fragments, placeholder junk, or random mixed-language tokens
 - risky overengineering or unrelated changes
 
 Report findings by severity:
@@ -159,6 +165,7 @@ Complete only when:
 
 - The requested behavior is implemented.
 - Relevant verification has run and passed, or the limitation is clearly reported.
+- Written code/config changes have been checked for transcript/tool-call contamination.
 - Tiny: same-session self-review has run.
 - Medium/large: required subagent review has run.
 - P0/P1 review findings are fixed or explicitly judged inapplicable with evidence.
