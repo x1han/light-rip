@@ -89,7 +89,13 @@ Restart Codex after installing or updating the skill.
 
 ## Hook Behavior
 
-The required `UserPromptSubmit` hook is non-blocking. For likely coding requests, it injects `reminder.md` as additional context; for non-coding prompts, it stays quiet.
+The required `UserPromptSubmit` hook is non-blocking. For every prompt, it injects `reminder.md` as additional context so the agent remembers:
+
+- factual claims need current evidence
+- observations, inferences, and recommendations should stay separate
+- tiny code edits do not need Light RIP
+- medium and large coding tasks should use Light RIP
+- risky tasks should use the stronger review path
 
 ## Files
 

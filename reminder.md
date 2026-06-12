@@ -1,5 +1,21 @@
 # Light RIP Reminder
 
+## Evidence Before Claims
+
+Do not present guesses as facts. Before making a factual conclusion about code, files, tests, logs, data, execution state, results, or external facts, check the relevant source directly or state that you have not verified it.
+
+Separate:
+
+- Observation: what you directly saw in code, files, command output, logs, tests, docs, or user-provided facts.
+- Inference: what that evidence suggests.
+- Recommendation: what to do next.
+
+If evidence is partial, stale, indirect, or missing, qualify the claim. Do not treat old context as current state, one example as proof of the whole system, or absence of visible errors as proof that no errors exist.
+
+The test: could a skeptical engineer trace this claim back to something you actually checked? If not, re-check or soften the claim.
+
+## If This Is A Coding Task
+
 Before responding to the user, decide whether the prompt asks for code changes and classify the coding task as tiny, medium, or large.
 
 Tiny tasks stay in the main session. Do same-session plan -> implement -> verify -> self-review. Do not spawn subagents for tiny tasks.

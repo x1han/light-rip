@@ -173,7 +173,7 @@ Complete only when:
 
 ## Required Reminder Hook
 
-This skill includes a required reminder hook that runs on `UserPromptSubmit`. It does not block prompts. For likely coding requests, it injects `reminder.md` as additional context so the agent remembers to classify the task and use the required subagent tiers for medium and large code changes.
+This skill includes a required reminder hook that runs on `UserPromptSubmit`. It does not block prompts. For every prompt, it injects `reminder.md` as additional context so the agent remembers to apply evidence discipline before factual claims. The same reminder also tells the agent to classify coding tasks and use the required Light RIP subagent tiers for medium and large code changes.
 
 This is a skill setup step, not software installation. First place the `light-rip` folder in the target skills directory, then run the matching hook installer from that installed folder.
 
