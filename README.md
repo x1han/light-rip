@@ -87,6 +87,43 @@ This writes or updates:
 
 Restart Codex after installing or updating the skill.
 
+### Other Agents (Mavis / Mavis Code, and beyond)
+
+For any agent runtime that is not Claude Code or Codex, use the general installer. Defaults target Mavis / Mavis Code (the primary "other agent" use case); override flags to install for any runtime that uses the same hook-file convention.
+
+```bash
+# clone into any local directory; the installer handles the rest
+git clone https://github.com/x1han/light-rip
+cd light-rip
+python hooks/install_general_agent_hook.py
+```
+
+This writes or updates:
+
+- `<dataDir>/agents/<agent>/hooks/light-rip-reminder.md` (default agent: `mavis`)
+
+Useful flags:
+
+- `--agent <name>` — target agent name (default: `mavis`)
+- `--data-dir <path>` — override the agent data dir (default: `$MAVIS_DATA_DIR` or `~/.mavis`)
+- `--hooks-dir <path>` — write the hook file to a specific directory directly (skips data-dir resolution)
+- `--format <name>` — reminder output format: `mavis` (default) or `harness`
+- `--event <name>` — hook event (default: `UserPromptSubmit`)
+- `--priority <n>` — hook priority (lower runs first; default 5)
+- `--no-path-fix` — skip the Git-Bash PATH auto-fix described below
+
+The shared `light_rip_reminder.py` dispatches on `--format` and currently supports `harness` (Claude Code / Codex shape — back-compat default) and `mavis` (Mavis / Mavis Code shape). Adding a new agent = adding one entry to the `FORMATS` table in `light_rip_reminder.py`; no need to touch this installer.
+
+#### Windows: Git Bash PATH
+
+The Mavis hook runner executes the body of a fenced `bash` block through `sh` on Windows. Git for Windows ships `sh.exe` at `C:\Program Files\Git\bin\sh.exe`, but it is not on `PATH` by default. The installer detects this and appends Git Bash to the user's `PATH` via the registry (with a `SendMessageTimeout` broadcast so new processes pick it up immediately).
+
+The currently running Mavis daemon keeps the PATH it was launched with. **Restart the agent runtime** after installing so the new PATH takes effect for the hook runner.
+
+If you prefer to manage PATH yourself, pass `--no-path-fix` and ensure `sh` is on the runtime's PATH before installing.
+
+Restart the agent runtime after installing or updating the skill.
+
 ## Hook Behavior
 
 The required `UserPromptSubmit` hook is non-blocking. For every prompt, it injects `reminder.md` as additional context so the agent remembers:
@@ -101,6 +138,7 @@ The required `UserPromptSubmit` hook is non-blocking. For every prompt, it injec
 
 - `SKILL.md`: the skill instructions
 - `reminder.md`: the context injected by the hook
-- `hooks/light_rip_reminder.py`: the shared hook command
-- `hooks/install_codex_hook.py`: Codex hook setup
-- `hooks/install_claude_hook.py`: Claude Code hook setup
+- `hooks/light_rip_reminder.py`: the shared hook command. Multi-format via `--format` (default `harness` keeps Claude Code / Codex back-compat; `mavis` rewrites the prompt for Mavis / Mavis Code). New runtimes plug in by adding an entry to `FORMATS`.
+- `hooks/install_codex_hook.py`: Codex-specific installer (calls `light_rip_reminder.py` with no flags, defaults to `harness`)
+- `hooks/install_claude_hook.py`: Claude Code-specific installer (same call shape)
+- `hooks/install_general_agent_hook.py`: generic installer for any other agent runtime (defaults to Mavis; calls `light_rip_reminder.py --format mavis`)
