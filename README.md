@@ -147,39 +147,37 @@ Restart the agent runtime after installing or updating the skill.
 
 Light RIP is a skill package copied into an agent's skills directory. To update an existing installation, pull the latest from GitHub into your installed copy and re-run the matching hook installer if the hooks or installer scripts changed.
 
-### General: `git pull` from the installed copy
+The update procedure mirrors installation: run from inside the installed `light-rip` folder, then re-run the installer that matches how you originally installed the skill.
 
-If you installed via `git clone` (Claude Code, Codex, or any other path you cloned into), update from inside the installed folder:
+### Claude Code
+
+```bash
+cd ~/.claude/skills/light-rip
+git pull
+python hooks/install_claude_hook.py
+```
+
+Restart Claude Code after updating.
+
+### Codex
+
+```bash
+cd "$CODEX_HOME/skills/light-rip"
+git pull
+python hooks/install_codex_hook.py
+```
+
+Restart Codex after updating.
+
+### Other agents (Mavis / Mavis Code / general)
 
 ```bash
 cd <path-to-installed-light-rip>
 git pull
-```
-
-Then re-run the matching installer if the hook code changed:
-
-```bash
-# Codex
-python hooks/install_codex_hook.py
-
-# Claude Code
-python hooks/install_claude_hook.py
-
-# Mavis / Mavis Code / other agents
 python hooks/install_general_agent_hook.py
 ```
 
 Restart the agent runtime after updating.
-
-### Mavis / Mavis Code
-
-In Mavis or Mavis Code, send the agent this Chinese update command:
-
-```text
-更新 light-rip
-```
-
-The agent clones [https://github.com/x1han/light-rip](https://github.com/x1han/light-rip) into your workspace, replaces the installed `light-rip` skill folder with the latest contents, and re-runs the matching hook installer for your runtime. This is the supported update path for Mavis agents; do not install or update via `pip`, `npm`, `cargo`, or as a project checkout.
 
 ## Hook Behavior
 
