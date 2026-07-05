@@ -4,36 +4,55 @@ Light RIP is an agent skill package, not a software application.
 
 `RIP` names the three safeguards in the skill: `Review`, `Implement`, and `Plan`. In execution, the lightweight loop runs as `Plan -> Implement -> Review`; the name keeps the three pieces memorable without turning them into a heavyweight process.
 
-Light RIP has exactly three tiers:
+Light RIP has exactly three tiers. Every tier runs `Plan -> Implement -> Verify`. Medium and Large add two independent reviewer passes — one before any code is written (pre-work review) and one after the diff exists (post-work review) — so design errors get caught cheaply before they are baked into code. Large also adds an independent verifier subagent that re-runs the verification commands with fresh eyes.
 
 - `Tiny`: the main session plans, implements, verifies, and self-reviews. No subagents.
-- `Medium`: the main session plans, implements, and verifies, then a reviewer subagent reviews the diff. The main session fixes review findings.
-- `Large`: planner, implementer, and reviewer are all subagents. The main session coordinates and fixes review findings.
+- `Medium`: the main session plans inline. A reviewer subagent does a pre-work review of the plan. The main session implements and verifies. The reviewer subagent (or a fresh one) does a post-work review of the diff. The main session fixes review findings.
+- `Large`: a planner subagent produces the plan. A reviewer subagent does a pre-work review of the plan. An implementer subagent implements and self-verifies. A verifier subagent independently re-runs the verification commands with fresh eyes. The reviewer subagent (or a fresh one) does a post-work review of the diff and verification output. The main session coordinates and fixes review findings.
 
 ```mermaid
 flowchart LR
     A["User prompt"] --> B{"Coding task size?"}
     B -->|"Tiny"| C["Main session: plan + implement + verify + self-review"]
-    B -->|"Medium"| D["Main session: plan + implement + verify"]
-    D --> E["Reviewer subagent"]
-    B -->|"Large"| F["Planner subagent"]
-    F --> G["Implementer subagent"]
-    G --> H["Reviewer subagent"]
-    E --> I["Main session fixes findings"]
-    H --> I
-    C --> J["Done"]
-    I --> K["Final verify"]
-    K --> J
+    B -->|"Medium"| D["Main session: plan"]
+    D --> E1["Reviewer subagent: pre-work review of plan"]
+    E1 --> F["Main session: implement + verify"]
+    F --> G1["Reviewer subagent: post-work review of diff"]
+    B -->|"Large"| H["Planner subagent: plan"]
+    H --> I1["Reviewer subagent: pre-work review of plan"]
+    I1 --> J["Implementer subagent: implement + self-verify"]
+    J --> J2["Verifier subagent: independent re-verification"]
+    J2 --> K1["Reviewer subagent: post-work review of diff"]
+    G1 --> L["Main session fixes findings"]
+    K1 --> L
+    C --> M["Done"]
+    L --> N["Final verify"]
+    N --> M
 ```
+
+## Reviewer and Verifier Roles
+
+Light RIP uses three independent subagent roles in Medium and Large:
+
+- **Pre-work reviewer**: scrutinizes the plan before any code is written. Catches wrong target files, wrong abstractions, missing verification, and misread requirements — design errors that are cheap to fix before implementation and expensive to fix after.
+- **Implementer** (Large only as a subagent): does the work and runs the planned verification commands itself.
+- **Verifier** (Large only): independently re-runs the verification commands with fresh eyes. Catches cases where the implementer's self-verification was inadequate, where the chosen verification commands miss regressions, or where edge cases were not exercised. The verifier reports whether the implementation actually passes the planned checks.
+- **Post-work reviewer**: scrutinizes the diff and verification output after implementation. For Large, it sees both the implementer's report and the verifier's independent report. Catches bugs, regressions, transcript contamination, and risky overengineering.
+
+Pre-work review protects the implementation phase from going down a wrong path. Post-work review protects the final result from going out the door. The verifier protects against single-sourced verification — the implementer's self-report being the only signal that the code works.
+
+Pre-work review and post-work review are both done by a reviewer subagent, but they have different inputs and different concerns. They cannot be merged into a single pass.
+
+The verifier is not a replacement for the implementer's self-verification, and it is not a replacement for the post-work reviewer. It is a separate role with a separate job: it executes verification commands and reports results. Reviewer reads verification output; verifier produces verification output.
 
 Risk upgrades the tier: risky tiny becomes medium, risky medium becomes large, and risky large stays large while reviewers focus on the risk area.
 
-Review findings always return to the main session. For nontrivial P1 fixes, do one short reviewer subagent re-review of the changed lines.
+Reviewer and verifier findings both return to the main session. The same fix loop applies to pre-work review, post-work review, and the Large verifier: P0/P1 findings block completion, main session fixes or routes back to the implementer, relevant verification runs again, and nontrivial P1 fixes get a short re-review. For verifier failures, the loop routes through the implementer (fix + self-verify + verifier re-run); for reviewer findings, main session fixes directly.
 
 ```mermaid
 flowchart LR
-    A["Subagent review"] --> B{"P0/P1 findings?"}
-    B -->|"Yes"| C["Main session fixes"]
+    A["Reviewer or verifier subagent"] --> B{"P0/P1 findings?"}
+    B -->|"Yes"| C["Main session fixes (or routes to implementer for verifier failures)"]
     C --> D["Relevant verification"]
     D --> E{"Nontrivial P1 fix?"}
     E -->|"Yes"| A
@@ -123,6 +142,42 @@ The currently running Mavis daemon keeps the PATH it was launched with. **Restar
 If you prefer to manage PATH yourself, pass `--no-path-fix` and ensure `sh` is on the runtime's PATH before installing.
 
 Restart the agent runtime after installing or updating the skill.
+
+## Updating
+
+Light RIP is a skill package copied into an agent's skills directory. To update an existing installation, pull the latest from GitHub into your installed copy and re-run the matching hook installer if the hooks or installer scripts changed.
+
+### General: `git pull` from the installed copy
+
+If you installed via `git clone` (Claude Code, Codex, or any other path you cloned into), update from inside the installed folder:
+
+```bash
+cd <path-to-installed-light-rip>
+git pull
+```
+
+Then re-run the matching installer if the hook code changed:
+
+```bash
+# Codex
+python hooks/install_codex_hook.py
+
+# Claude Code
+python hooks/install_claude_hook.py
+
+# Mavis / Mavis Code / other agents
+python hooks/install_general_agent_hook.py
+```
+
+Restart the agent runtime after updating.
+
+### Mavis / Mavis Code: say "update light-rip"
+
+In Mavis or Mavis Code, just tell the agent:
+
+> 更新 light-rip
+
+The agent clones [https://github.com/x1han/light-rip](https://github.com/x1han/light-rip) into your workspace, replaces the installed `light-rip` skill folder with the latest contents, and re-runs the matching hook installer for your runtime. This is the supported update path for Mavis agents; do not install or update via `pip`, `npm`, `cargo`, or as a project checkout.
 
 ## Hook Behavior
 

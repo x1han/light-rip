@@ -29,13 +29,15 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 ## Operating Rules
 
 - Keep the process smaller than the change. Timebox planning and review.
-- Tiny tasks stay in the main session: plan, implement, verify, self-review.
-- Medium tasks MUST spawn one reviewer subagent after the main session implements and verifies.
-- Large tasks MUST spawn three subagents: planner, implementer, reviewer.
+- Tiny tasks stay in the main session: plan, implement, verify, self-review. No subagents.
+- Medium tasks MUST spawn a reviewer subagent twice: once for pre-work review of the inline plan, and once for post-work review of the diff. The main session implements and verifies between the two passes.
+- Large tasks MUST spawn a planner subagent, a pre-work reviewer subagent, an implementer subagent (which self-verifies), a verifier subagent (which independently re-runs verification), and a post-work reviewer subagent. The main session coordinates and fixes review findings.
+- Pre-work review and post-work review are separate passes with different inputs and different concerns. Do not merge them. Do not skip pre-work review on Medium or Large.
+- The verifier (Large only) is not a replacement for the implementer's self-verification; it is an independent second look. Run it after the implementer reports verification complete.
 - Prefer the repo's existing patterns over new abstractions.
 - Do not write a long spec unless the user asked for one.
 - Do not create commits, branches, or docs unless the user asked for them or the repo workflow requires them.
-- Reviewer subagents are read-only by default. They report issues; the main session fixes them.
+- Reviewer and verifier subagents are read-only by default. They report issues or results; the main session fixes them.
 - Before writing generated code or config, check the proposed content for transcript contamination: analysis text, tool-call fragments, malformed JSON repair chatter, placeholder junk, or random mixed-language tokens.
 - If proposed write content looks contaminated, discard that write and regenerate a minimal clean edit. Do not try to patch around contaminated text.
 - When replacing existing source file content, inspect the proposed replacement for contamination before applying it; prefer minimal patch-style edits when available.
@@ -46,33 +48,55 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 ```text
 1. Classify scope
    tiny -> main-session plan + implement + verify + self-review
-   medium -> main-session plan + implement + verify, then reviewer subagent
-   large -> planner subagent + implementer subagent + reviewer subagent
+   medium -> main-session plan
+             -> reviewer subagent: pre-work review of plan
+             -> main-session implement + verify
+             -> reviewer subagent: post-work review of diff
+   large  -> planner subagent: plan
+             -> reviewer subagent: pre-work review of plan
+             -> implementer subagent: implement + self-verify
+             -> verifier subagent: independent re-verification
+             -> reviewer subagent: post-work review of diff
 
 2. Planning
-   Tiny/medium: main session writes 2-5 bullets inline.
+   Tiny: 1-2 inline bullets.
+   Medium: main session writes 2-5 bullets inline.
    Large: planner subagent is read-only and outputs at most 15 lines:
    - goal
    - assumptions
    - files or areas to inspect/change
    - verification commands
    - risks
-   Timebox: one focused pass over the obvious files. If medium planning needs more
+   Timebox planning to one focused pass over the obvious files. If medium planning needs more
    than about 5 minutes or 5 files, reclassify as large.
+
+2.5. Pre-work review (medium and large)
+   After the plan exists, MUST spawn a reviewer subagent to scrutinize it before any code is written.
+   Use the Plan Reviewer Prompt below. The reviewer is read-only and reports findings by severity.
+   Address P0/P1 issues by revising the plan. Do not start implementation until pre-work review
+   approves or only flags non-blocking P2s.
 
 3. Implementation
    Tiny/medium: main session implements and verifies.
-   Large: implementer subagent implements and verifies.
+   Large: implementer subagent implements and self-verifies (runs the planned verification commands).
 
-4. Review
-   Tiny: main session self-reviews the diff.
-   Medium/large: reviewer subagent MUST review the actual diff and verification output.
-   Timebox: one focused pass over the diff and verification output.
+3.5. Independent verification (large only)
+   After the implementer reports verification complete, MUST spawn a verifier subagent to re-run
+   the verification commands with fresh eyes. Use the Verifier Prompt below. The verifier is
+   read-only and reports which checks passed, which failed, and any verification gap it noticed.
+   Treat verifier findings (failed checks, missing checks, inadequate commands) as P0 issues —
+   block completion until they are resolved or explicitly waived with evidence.
 
-5. Fix loop
-   Main session fixes P0/P1 issues. Fix P2 issues only when they are clearly worth the churn.
-   Re-run relevant verification after fixes. For nontrivial P1 fixes, do one short reviewer
-   subagent re-review of the changed lines.
+4. Post-work review (medium and large)
+   After implementation (and verifier, for large), MUST spawn a reviewer subagent to scrutinize
+   the diff and verification output. For Large, the reviewer sees both the implementer's report
+   and the verifier's independent report. Use the Reviewer Prompt below. The reviewer is read-only.
+   Tiny: skip this step — main session self-reviews in step 5.
+
+5. Fix loop (all tiers)
+   Main session fixes P0/P1 issues raised by the most recent reviewer or verifier pass. Fix P2
+   issues only when they are clearly worth the churn. Re-run relevant verification after fixes.
+   For nontrivial P1 fixes, do one short reviewer subagent re-review of the changed lines.
 ```
 
 ## Planner Prompt
@@ -133,6 +157,74 @@ Return:
 
 If subagents are unavailable for a large task, say that Light RIP cannot run the large-task workflow as specified and ask whether to downgrade to the medium workflow.
 
+## Plan Reviewer Prompt
+
+Use this prompt for the pre-work reviewer subagent on Medium and Large tasks. This pass reviews the plan only; do not use it for the post-work diff review.
+
+```text
+You are the independent plan reviewer for a lightweight coding workflow.
+
+User request:
+<original user prompt>
+
+Plan to review:
+<main-session inline plan OR planner subagent output>
+
+Do not edit files. Do not implement. Read-only review of the plan only.
+
+Focus on:
+- Does the plan address the right problem? Does it match the user's request?
+- Are the listed files and areas actually the right ones to change? Any obvious miss?
+- Is the verification approach sound? Will it actually catch a regression?
+- Are the assumptions stated, or are there hidden ones that block implementation?
+- Is there a clearly simpler or safer approach the plan missed?
+
+Report findings by severity:
+- P0 blocks implementation (wrong target, missing dependency, unverifiable)
+- P1 should be addressed before implementation
+- P2 worth considering, but not blocking
+
+If the plan is sound, say "Approved" and mention any residual risk the implementer should watch for.
+```
+
+If subagents are unavailable for the pre-work review on a medium or large task, say that Light RIP cannot run the requested tier as specified. Ask whether to downgrade to the tiny workflow.
+
+## Verifier Prompt
+
+Large tasks MUST spawn a verifier subagent after the implementer reports verification complete. The verifier independently re-runs the verification commands and reports what actually passes. Do not use this prompt for Medium — Medium does not have a verifier step.
+
+```text
+You are the independent verifier for a lightweight coding workflow.
+
+User request:
+<original user prompt>
+
+Plan to verify against:
+<main-session inline plan OR planner subagent output>
+
+Implementer's verification report:
+<implementer subagent's verification output>
+
+Do not edit files. Do not implement. Read-only verification only.
+
+Run the verification commands from the plan yourself, in a fresh context. Do not trust the
+implementer's report — your job is to independently confirm whether the planned checks actually
+pass on the current state of the code.
+
+Report:
+- Which verification commands you ran
+- Which ones passed, which ones failed, which ones you could not run (and why)
+- Any gap you noticed: tests that should have been run but were not, edge cases the implementer's
+  verification missed, or verification commands that look inadequate for catching regressions in this change
+- Whether the implementation matches the user's request from a behavioral standpoint (you do not need
+  to read every file, but spot-check the changed areas)
+
+If all planned checks pass and no gaps are obvious, say "Verified" and mention any residual concern
+the reviewer should follow up on.
+```
+
+If subagents are unavailable for the verifier step on a large task, say that Light RIP cannot run the large workflow as specified. Ask whether to downgrade to the medium workflow (which uses only the post-work reviewer).
+
 ## Reviewer Prompt
 
 Medium and large tasks MUST spawn a reviewer subagent. Use an existing user-provided reviewer skill when available. If no reviewer skill is available, use this Light RIP reviewer prompt. The reviewer is read-only:
@@ -167,7 +259,8 @@ Complete only when:
 - Relevant verification has run and passed, or the limitation is clearly reported.
 - Written code/config changes have been checked for transcript/tool-call contamination.
 - Tiny: same-session self-review has run.
-- Medium/large: required subagent review has run.
+- Medium: pre-work reviewer subagent has run on the inline plan, and post-work reviewer subagent has run on the diff.
+- Large: pre-work reviewer subagent has run on the planner output, implementer subagent has implemented and self-verified, verifier subagent has independently re-verified, and post-work reviewer subagent has run on the diff and verification output.
 - P0/P1 review findings are fixed or explicitly judged inapplicable with evidence.
 - The final response names the main files changed and verification performed.
 
@@ -226,9 +319,13 @@ python hooks/install_claude_hook.py
 ## Common Mistakes
 
 - Spawning subagents for tiny tasks. Keep tiny in the main session.
-- Doing medium review in the main session. Medium requires a reviewer subagent.
-- Doing large planning or implementation in the main session. Large requires planner, implementer, and reviewer subagents.
+- Skipping pre-work review on medium or large tasks. The plan must be scrutinized by a reviewer subagent before any code is written.
+- Merging pre-work and post-work review into a single pass. They have different inputs and different concerns; run them as two separate reviewer invocations.
+- Skipping the verifier on large tasks. The implementer's self-verification is not enough — Large requires a fresh independent verifier pass.
+- Treating the verifier as a replacement for the implementer's self-verification or the post-work reviewer. The verifier is a separate role: it executes verification commands, while the reviewer reads verification output.
+- Doing medium review in the main session. Medium requires pre-work and post-work reviewer subagents.
+- Doing large planning or implementation in the main session. Large requires planner, pre-work reviewer, implementer, verifier, and post-work reviewer subagents.
 - Letting the planner write a long design doc. Cap it.
-- Letting reviewers rewrite code. Keep review read-only.
+- Letting reviewers or the verifier rewrite code. Keep review and verification read-only.
 - Treating P2 suggestions as mandatory. Avoid churn.
 - Claiming completion before verification.

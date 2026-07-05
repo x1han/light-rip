@@ -25,8 +25,10 @@ Medium and large tasks must use the `light-rip` skill before editing code.
 Required tiers:
 
 - Tiny: main session does plan -> implement -> verify -> self-review. No subagents.
-- Medium: main session does plan -> implement -> verify, then MUST spawn one reviewer subagent. The main session fixes review findings.
-- Large: MUST spawn planner subagent, implementer subagent, and reviewer subagent. The main session coordinates and fixes review findings.
+- Medium: main session writes the inline plan; MUST spawn a reviewer subagent for pre-work review of the plan; main session implements and verifies; MUST spawn a reviewer subagent (or a fresh one) for post-work review of the diff. Main session fixes review findings.
+- Large: MUST spawn a planner subagent for the plan; MUST spawn a reviewer subagent for pre-work review of the plan; MUST spawn an implementer subagent for implementation and self-verification; MUST spawn a verifier subagent to independently re-run the verification commands; MUST spawn a reviewer subagent (or a fresh one) for post-work review of the diff and verification output. Main session coordinates and fixes review findings.
+
+Pre-work review and post-work review are two separate reviewer passes. Do not skip pre-work review on Medium or Large, and do not merge the two passes into one. The verifier (Large only) is a separate role from the reviewers: it executes verification commands and reports results, while reviewers read verification output.
 
 Upgrade one tier for auth, permissions, payment, data migration, security, concurrency, public API, destructive write, or compliance impact.
 
