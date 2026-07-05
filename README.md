@@ -171,11 +171,13 @@ python hooks/install_general_agent_hook.py
 
 Restart the agent runtime after updating.
 
-### Mavis / Mavis Code: say "update light-rip"
+### Mavis / Mavis Code
 
-In Mavis or Mavis Code, just tell the agent:
+In Mavis or Mavis Code, send the agent this Chinese update command:
 
-> 更新 light-rip
+```text
+更新 light-rip
+```
 
 The agent clones [https://github.com/x1han/light-rip](https://github.com/x1han/light-rip) into your workspace, replaces the installed `light-rip` skill folder with the latest contents, and re-runs the matching hook installer for your runtime. This is the supported update path for Mavis agents; do not install or update via `pip`, `npm`, `cargo`, or as a project checkout.
 
