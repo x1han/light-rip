@@ -4,35 +4,43 @@
 This script is the universal entry point for installing the Light RIP
 reminder on **any** agent runtime. Unlike `install_codex_hook.py` and
 `install_claude_hook.py`, which know the exact hook schema of their
-target runtime, this script does **not** write any files. Its sole job
-is to print a structured prompt that:
+target runtime, this script does **not** write any files and does
+**not** take a `--agent` argument. Its sole job is to print a
+structured prompt that:
 
   1. States what the reminder is and where its source files live.
   2. Walks the receiving agent through two reference examples —
-     ZCode (hook path) and OpenCode (instructions path) — and asks
-     it to install for its own runtime by analogy.
+     OpenCode (instructions path) and ZCode (hook path) — and asks
+     it to install for its own runtime **by analogy**.
   3. Names the verify script to confirm the install landed.
+
+The script is deliberately **agent-name-agnostic**. We do not
+enumerate agent runtimes: there are too many, and the list would go
+stale immediately. Two examples are enough to convey the two install
+paths the agent can take; for any other runtime, the receiving agent
+inspects its own environment, picks the matching path, and runs it.
 
 The two reference paths the prompt covers:
 
-  - hook        — runtime has a `UserPromptSubmit` hook layer; the
-                  reminder script gets invoked on every prompt and
-                  injects `reminder.md` into the context.
   - instructions — runtime reads a config file that lists context
-                  files; the runtime itself concatenates `reminder.md`
-                  onto the system prompt, no script invocation needed.
+                   files; the runtime itself concatenates `reminder.md`
+                   onto the system prompt, no script invocation needed.
+  - hook         — runtime has a `UserPromptSubmit` hook layer; the
+                   reminder script gets invoked on every prompt and
+                   injects `reminder.md` into the context.
 
 After running this script, feed the printed prompt to the target
 agent (or follow its steps yourself). Then run
-`hooks/verify_install.py` to confirm the install.
+`hooks/verify_install.py --agent <runtime-name>` to confirm.
 
 Backward-compatibility note
 ---------------------------
 Earlier versions of this script auto-installed for one specific
 runtime using flags such as `--data-dir`, `--hooks-dir`, `--format`,
-and `--no-path-fix`. Those flags are removed; passing them now triggers
-argparse errors. The new design is runtime-agnostic — the agent that
-receives the printed prompt decides the install path.
+`--no-path-fix`, and `--agent`. All those flags are removed; passing
+any of them now triggers an argparse error. The new design is
+runtime-agnostic — the agent that receives the printed prompt decides
+the install path.
 """
 from __future__ import annotations
 
@@ -67,30 +75,33 @@ def detect_python() -> str:
 
 # ---------- prompt rendering ----------
 
-def build_prompt(agent: str, target_runtime: str,
-                 python_exe: str, skill: Path) -> str:
+def build_prompt(python_exe: str, skill: Path) -> str:
     reminder_py = reminder_script()
     reminder_path = reminder_md()
 
     return f"""{PROMPT_MARKER_START}
-agent: {agent}
-target-runtime: {target_runtime}
 python: {python_exe}
 skill-root: {skill}
 reminder-md: {reminder_path}
 reminder-script: {reminder_py}
 
-You are tasked with installing the **Light RIP reminder** for the agent
-runtime identified as `{agent}`. The reminder source lives at
-`{reminder_path}`. The reminder script — which reads it on every hook
-fire and prints a JSON envelope — is `{reminder_py}` and accepts a `--format` flag whose default
-value is `harness`. The `harness` format emits the standard
-`hookSpecificOutput.additionalContext` envelope that most runtimes
-expect.
+You are tasked with installing the **Light RIP reminder** for the
+agent runtime you are currently running on (or for some other agent
+runtime the user is configuring — confirm with the user if unclear).
+
+  - The reminder source is `{reminder_path}`. It is **runtime-neutral**
+    and must not be edited.
+  - The reminder script is `{reminder_py}`. It reads the reminder
+    file on every hook fire and prints a JSON envelope. It accepts
+    a `--format` flag whose default is `harness` — that default emits
+    the standard `hookSpecificOutput.additionalContext` envelope that
+    most runtimes accept.
 
 There are exactly two install paths. Pick the one that matches your
-runtime. The two paths below are fully worked examples; for any
-other runtime, **install by analogy**.
+runtime by **inspecting your own environment first** (the runtime's
+config files, docs, or source). The two paths below are worked
+examples for two well-known runtimes; install by analogy for any
+other.
 
 == Path 1: instructions — runtime reads a config that lists context files ==
 
@@ -121,16 +132,16 @@ Install:
 
 Why this works: OpenCode has no hook layer; it has no notion of
 "reminder script invocation". But it already has a documented
-mechanism for injecting extra context into every prompt — `instructions`.
-We use it. No Python is involved.
+mechanism for injecting extra context into every prompt —
+`instructions`. We use it. No Python is involved.
 
 **By analogy for any other agent**: if its config has anything that
 looks like "instructions" / "system_prompt_append" / "context_files"
 / "prepend_files" / etc., add `"{reminder_path}"` to that list.
 Restart the runtime.
 
-After installing, run:
-    python {skill}/hooks/verify_install.py --agent {agent}
+After installing, confirm with:
+    python {skill}/hooks/verify_install.py --agent opencode
 
 == Path 2: hook — runtime has a UserPromptSubmit hook layer ==
 
@@ -195,9 +206,8 @@ If your runtime IS Codex or Claude Code, run the dedicated installer
 instead of following the ZCode analogy. Do not use this general
 installer to edit `~/.codex/` or `~/.claude/`.
 
-After installing, run:
-    python {skill}/hooks/verify_install.py --agent {agent} \\
-        --target-runtime {target_runtime}
+After installing, confirm with:
+    python {skill}/hooks/verify_install.py --agent zcode
 
 == Choosing between the two paths ==
 
@@ -206,11 +216,6 @@ process to spawn, no timeout to tune, no JSON envelope to merge, and
 the runtime does all the work. Reach for **Path 2 (hook)** only when
 the runtime truly has no `instructions`-style config and only a hook
 event will reach every prompt.
-
-If your runtime has neither, ask the user where the runtime stores
-its user-level configuration, or inspect its binary resources for
-the strings `UserPromptSubmit`, `hookEvent`, `additionalContext`,
-`matcher`, `instructions`. If you find a relevant config, use it.
 
 == Hard requirements (apply to both paths) ==
 
@@ -247,16 +252,10 @@ The caller will then run `verify_install.py` to confirm.
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Print a Light RIP install prompt for the target agent. "
-                    "Does not write files itself; the receiving agent executes "
-                    "the install.",
+        description="Print a Light RIP install prompt. Runtime-agnostic: "
+                    "does not take an agent name. Does not write files "
+                    "itself; the receiving agent executes the install.",
     )
-    parser.add_argument("--agent", required=True,
-                        help="Target agent name (e.g. zcode, opencode, "
-                             "aider, cursor, continue, ...).")
-    parser.add_argument("--target-runtime",
-                        help="Runtime the receiving agent identifies as. "
-                             "Defaults to the value of --agent.")
     parser.add_argument("--python",
                         help="Absolute path to the Python interpreter to "
                              "encode in the prompt. Defaults to the "
@@ -278,12 +277,9 @@ def main() -> int:
               file=sys.stderr)
         return 1
 
-    target_runtime = args.target_runtime or args.agent
     python_exe = args.python or detect_python()
 
     prompt = build_prompt(
-        agent=args.agent,
-        target_runtime=target_runtime,
         python_exe=python_exe,
         skill=skill,
     )

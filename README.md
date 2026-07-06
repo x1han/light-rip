@@ -50,17 +50,15 @@ python hooks/install_claude_hook.py
 
 ### Other agents (OpenCode / ZCode / anything else)
 
-For any agent runtime that is not Codex or Claude Code, use the **general installer**. It does **not** write any files itself — instead it prints a structured prompt that describes how to install the Light RIP reminder on the target agent. Feed that prompt to the agent (or to yourself in a chat); the agent then picks the right install path and performs it.
+For any agent runtime that is not Codex or Claude Code, use the **general installer**. It does **not** write any files itself — instead it prints a structured prompt that describes how to install the Light RIP reminder. Feed that prompt to the agent (or to yourself in a chat); the agent then inspects its own runtime and installs by analogy.
 
 ```bash
 git clone https://github.com/x1han/light-rip
 cd light-rip
-python hooks/install_general_agent_hook.py --agent <agent-name>
-# e.g. --agent opencode, --agent zcode, --agent aider, --agent cursor,
-#      --agent continue, ...
+python hooks/install_general_agent_hook.py
 ```
 
-The printed prompt walks the agent through two install paths:
+The installer takes **no agent name on the command line** — there are too many agent runtimes to enumerate, and the list would go stale immediately. The printed prompt works for any runtime and uses two worked examples as anchors:
 
   1. **Instructions** — if the runtime reads a list of context files
      (OpenCode's `instructions` field, …), the agent appends a path
@@ -71,20 +69,24 @@ The printed prompt walks the agent through two install paths:
 
 Other agent runtimes install by analogy to these two paths.
 
-After the agent finishes, confirm the install landed:
+After the agent finishes, confirm the install landed. `verify_install.py` is **runtime-aware** — pass the runtime name (e.g. `opencode`, `zcode`, `codex`, `claude`):
 
 ```bash
-python hooks/verify_install.py --agent <agent-name>          # human-readable
-python hooks/verify_install.py --agent <agent-name> --json   # machine-readable
+python hooks/verify_install.py --agent <runtime-name>          # human-readable
+python hooks/verify_install.py --agent <runtime-name> --json   # machine-readable
 ```
+
+If the runtime is not one of the known names, `verify_install.py`
+falls back to generic health checks (reminder.md readable, reminder
+script runnable).
 
 #### Breaking change vs older releases
 
 Earlier versions of `install_general_agent_hook.py` auto-installed
 for one specific runtime and accepted `--data-dir`, `--hooks-dir`,
-`--format`, and `--no-path-fix`. Those flags are removed. The new
-design is runtime-agnostic — the agent that receives the printed
-prompt decides the install path.
+`--format`, `--no-path-fix`, and `--agent`. All those flags are
+removed. The new design is runtime-agnostic — the agent that
+receives the printed prompt decides the install path.
 
 The previous Windows PATH-fix behavior (appending Git Bash to the
 user PATH via the registry) has also moved out of the installer. If
@@ -99,7 +101,7 @@ re-run the installer that matches your agent (see Installation).
 For the general installer, simply re-run:
 
 ```bash
-python hooks/install_general_agent_hook.py --agent <agent-name>
+python hooks/install_general_agent_hook.py
 ```
 
 and feed the new prompt to the target agent. Restart the agent
