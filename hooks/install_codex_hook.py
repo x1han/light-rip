@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -106,6 +107,27 @@ def main() -> int:
     if not args.no_enable_feature:
         ensure_hooks_feature(config_path)
     print(json.dumps({"hooks_path": str(hooks_path), "config_path": str(config_path), "hook": NAMESPACE}, ensure_ascii=True))
+    sys.stdout.flush()
+
+    # Always run the runtime-agnostic verifier after install. Its
+    # result is informational — the install itself has already
+    # landed; verify only checks that reminder.md is readable and
+    # the reminder script can spawn successfully. It does not gate
+    # the install exit code, because the install can be valid even
+    # if a transient runtime environment prevents the verifier from
+    # finding reminder.md (e.g. running from a moved worktree).
+    verify_path = Path(__file__).resolve().parent / "verify_install.py"
+    if verify_path.is_file():
+        print("\n--- verify_install.py ---")
+        sys.stdout.flush()
+        try:
+            subprocess.run(
+                [sys.executable, str(verify_path)],
+                check=False,
+            )
+        except OSError as exc:
+            print(f"verify failed to launch: {exc}", file=sys.stderr)
+
     return 0
 
 

@@ -67,33 +67,43 @@ The installer takes **no agent name on the command line** — there are too many
      (ZCode, …), the agent writes the hook entry itself or runs the
      matching dedicated installer.
 
-Other agent runtimes install by analogy to these two paths.
+Other agent runtimes install by analogy to these two paths. See
+[Verify the install](#verify-the-install) below for how to confirm
+the install landed, regardless of which path was taken.
 
-After the agent finishes, confirm the install landed. `verify_install.py` is **runtime-aware** — pass the runtime name (e.g. `opencode`, `zcode`, `codex`, `claude`):
+### Verify the install
 
-```bash
-python hooks/verify_install.py --agent <runtime-name>          # human-readable
-python hooks/verify_install.py --agent <runtime-name> --json   # machine-readable
-```
-
-If the runtime is not one of the known names, `verify_install.py`
-falls back to generic health checks (reminder.md readable, reminder
-script runnable).
-
-For **hook-style installs**, also do a quick self-test of the
-reminder script itself (this is independent of any runtime envelope
-shape — relies only on the script's own contract):
+After any install — dedicated installer or general installer's
+prompt — run the runtime-agnostic verifier:
 
 ```bash
-echo '{"input":{"prompt":"hi"},"output":{}}' \
-  | python hooks/light_rip_reminder.py --format harness
+python hooks/verify_install.py          # human-readable
+python hooks/verify_install.py --json   # machine-readable
 ```
 
-Pass criteria: exit code 0, stdout non-empty, stdout contains the
-substring `Evidence Before Claims` (a literal marker from
-`reminder.md`). If any check fails, the script cannot read the
-reminder or its output does not carry it — the runtime would inject
-nothing.
+It performs two checks that are valid for every install path:
+
+  1. `reminder.md` is readable at the expected skill-root location.
+  2. `light_rip_reminder.py` can start, read the reminder, and emit
+     stdout containing the literal marker `Evidence Before Claims`.
+
+These checks prove the **script-side** wiring is sound. They do NOT
+prove any runtime will actually invoke the hook on real prompts —
+that requires observing one real prompt and confirming the reminder
+content shows up in the agent's context.
+
+The dedicated Claude Code and Codex installers call `verify_install.py`
+automatically at the end, so the same two checks run as part of
+`python hooks/install_codex_hook.py` and
+`python hooks/install_claude_hook.py`.
+
+Exit codes:
+
+  - `0` — both checks passed
+  - `1` — one check failed (e.g. `reminder.md` not found, or the
+    reminder script could not spawn, or its stdout lacked the marker)
+  - `2` — setup is wrong (e.g. `reminder.md` missing entirely; the
+    script-side wiring cannot work at all)
 
 This self-test proves the **script-side** wiring. It does **not**
 prove the runtime actually invokes the hook on real prompts — that

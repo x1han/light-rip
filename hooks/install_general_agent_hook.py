@@ -31,7 +31,7 @@ The two reference paths the prompt covers:
 
 After running this script, feed the printed prompt to the target
 agent (or follow its steps yourself). Then run
-`hooks/verify_install.py --agent <runtime-name>` to confirm.
+`python hooks/verify_install.py` to confirm.
 
 Backward-compatibility note
 ---------------------------
@@ -141,7 +141,7 @@ looks like "instructions" / "system_prompt_append" / "context_files"
 Restart the runtime.
 
 After installing, confirm with:
-    python {skill}/hooks/verify_install.py --agent opencode
+    python {skill}/hooks/verify_install.py
 
 (Path 1 has no script to spawn, so there is no self-test to run here.
 Confirm `verify_install.py` says PASS and observe one real prompt
@@ -212,7 +212,7 @@ instead of following the ZCode analogy. Do not use this general
 installer to edit `~/.claude/` or `~/.codex/`.
 
 After installing, confirm with:
-    python {skill}/hooks/verify_install.py --agent zcode
+    python {skill}/hooks/verify_install.py
 
 Then do a self-test of the reminder script — this verifies the script
 itself can start and read `reminder.md`, independent of any runtime's
