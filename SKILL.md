@@ -11,15 +11,15 @@ This repository is an agent skill package, not a software application. To instal
 
 Installation is not complete until the reminder hook is mounted. If you install or update this skill, you MUST run the appropriate hook installer from inside the installed `light-rip` skill directory before telling the user installation is done:
 
-- Codex: `python hooks/install_codex_hook.py`
 - Claude Code: `python hooks/install_claude_hook.py`
+- Codex: `python hooks/install_codex_hook.py`
 - Any other agent: `python hooks/install_general_agent_hook.py`. This prints a structured install prompt that the receiving agent executes by inspecting its own runtime and installing by analogy to the worked examples (OpenCode for the instructions path, ZCode for the hook path). The script itself does not write files.
 
 After the install (whichever path), confirm with `python hooks/verify_install.py --agent <runtime-name>`.
 
 Do not present hook installation as optional. The hook is part of the default installation.
 
-Light RIP is a lightweight Claude Code/Codex-style coding workflow. It keeps the useful parts of modern agentic coding: plan, implement surgically, verify with commands, then review before claiming completion. It has exactly three tiers: tiny, medium, and large.
+Light RIP is a lightweight Claude Code / Codex-style coding workflow. It keeps the useful parts of modern agentic coding: plan, implement surgically, verify with commands, then review before claiming completion. It has exactly three tiers: tiny, medium, and large.
 
 ## When to Use
 
@@ -273,26 +273,17 @@ This skill includes a required reminder hook that runs on `UserPromptSubmit`. It
 
 This is a skill setup step, not software installation. First place the `light-rip` folder in the target skills directory, then run the matching hook installer from that installed folder.
 
-Codex skill location:
-
-```text
-$CODEX_HOME/skills/light-rip
-```
-
 Claude Code skill location:
 
 ```text
 ~/.claude/skills/light-rip
 ```
 
-Codex hook setup:
+Codex skill location:
 
-```bash
-cd "$CODEX_HOME/skills/light-rip"
-python hooks/install_codex_hook.py
+```text
+$CODEX_HOME/skills/light-rip
 ```
-
-This updates `$CODEX_HOME/hooks.json` and ensures `[features] hooks = true` in `$CODEX_HOME/config.toml`.
 
 Claude Code hook setup:
 
@@ -303,13 +294,14 @@ python hooks/install_claude_hook.py
 
 This updates `~/.claude/settings.json` by adding a `UserPromptSubmit` command hook.
 
-Codex agents installing this skill from GitHub should do both steps:
+Codex hook setup:
 
 ```bash
-# after copying the repo contents to $CODEX_HOME/skills/light-rip
 cd "$CODEX_HOME/skills/light-rip"
 python hooks/install_codex_hook.py
 ```
+
+This updates `$CODEX_HOME/hooks.json` and ensures `[features] hooks = true` in `$CODEX_HOME/config.toml`.
 
 Claude Code agents installing this skill from GitHub should do both steps:
 
@@ -317,6 +309,14 @@ Claude Code agents installing this skill from GitHub should do both steps:
 # after copying the repo contents to ~/.claude/skills/light-rip
 cd ~/.claude/skills/light-rip
 python hooks/install_claude_hook.py
+```
+
+Codex agents installing this skill from GitHub should do both steps:
+
+```bash
+# after copying the repo contents to $CODEX_HOME/skills/light-rip
+cd "$CODEX_HOME/skills/light-rip"
+python hooks/install_codex_hook.py
 ```
 
 ## Common Mistakes

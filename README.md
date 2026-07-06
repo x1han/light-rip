@@ -25,6 +25,17 @@ P0/P1 findings from any reviewer or verifier pass block completion. The main ses
 
 Do not install it as an app, service, Python package, or normal project checkout. Install it by placing the `light-rip` folder in your agent's skills directory, then mount the required `UserPromptSubmit` reminder hook — the skill folder alone is incomplete without the hook. After installing or updating, restart the agent runtime so the hook registers.
 
+### Claude Code
+
+Claude Code documentation and community examples use `$HOME/.claude/skills` or `~/.claude/skills`. Clone into the Claude Code skills directory and run the required hook setup from the installed copy:
+
+```bash
+mkdir -p "$HOME/.claude/skills"
+git clone https://github.com/x1han/light-rip "$HOME/.claude/skills/light-rip"
+cd "$HOME/.claude/skills/light-rip"
+python hooks/install_claude_hook.py
+```
+
 ### Codex
 
 If `CODEX_HOME` is unset, Codex normally uses `$HOME/.codex`. Clone into the Codex skills directory and run the required hook setup from the installed copy:
@@ -37,20 +48,9 @@ cd "$CODEX_HOME/skills/light-rip"
 python hooks/install_codex_hook.py
 ```
 
-### Claude Code
-
-Claude Code documentation and community examples use `$HOME/.claude/skills` or `~/.claude/skills`. Clone into the Claude Code skills directory and run the required hook setup from the installed copy:
-
-```bash
-mkdir -p "$HOME/.claude/skills"
-git clone https://github.com/x1han/light-rip "$HOME/.claude/skills/light-rip"
-cd "$HOME/.claude/skills/light-rip"
-python hooks/install_claude_hook.py
-```
-
 ### Other agents (OpenCode / ZCode / anything else)
 
-For any agent runtime that is not Codex or Claude Code, use the **general installer**. It does **not** write any files itself — instead it prints a structured prompt that describes how to install the Light RIP reminder. Feed that prompt to the agent (or to yourself in a chat); the agent then inspects its own runtime and installs by analogy.
+For any agent runtime that is not Claude Code or Codex, use the **general installer**. It does **not** write any files itself — instead it prints a structured prompt that describes how to install the Light RIP reminder. Feed that prompt to the agent (or to yourself in a chat); the agent then inspects its own runtime and installs by analogy.
 
 ```bash
 git clone https://github.com/x1han/light-rip

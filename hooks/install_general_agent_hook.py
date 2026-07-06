@@ -147,7 +147,7 @@ After installing, confirm with:
 
 **When this fits**: your runtime has a documented mechanism to invoke
 a script (or run a JSON-defined hook entry) on every user prompt,
-BEFORE the agent reasons. Examples include Codex/Claude-style hooks
+BEFORE the agent reasons. Examples include Claude/Codex-style hooks
 or any runtime that exposes `UserPromptSubmit` (or a similarly named)
 event.
 
@@ -198,13 +198,13 @@ expected JSON shape. The reminder script will print a
 accept verbatim.
 
 **Dedicated installers exist for two well-known runtimes**:
-  - Codex:        `python {skill}/hooks/install_codex_hook.py`
-                  (writes `~/.codex/hooks.json` JSON entry).
   - Claude Code:  `python {skill}/hooks/install_claude_hook.py`
                   (writes `~/.claude/settings.json` JSON entry).
-If your runtime IS Codex or Claude Code, run the dedicated installer
+  - Codex:        `python {skill}/hooks/install_codex_hook.py`
+                  (writes `~/.codex/hooks.json` JSON entry).
+If your runtime IS Claude Code or Codex, run the dedicated installer
 instead of following the ZCode analogy. Do not use this general
-installer to edit `~/.codex/` or `~/.claude/`.
+installer to edit `~/.claude/` or `~/.codex/`.
 
 After installing, confirm with:
     python {skill}/hooks/verify_install.py --agent zcode
