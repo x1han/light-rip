@@ -80,6 +80,26 @@ If the runtime is not one of the known names, `verify_install.py`
 falls back to generic health checks (reminder.md readable, reminder
 script runnable).
 
+For **hook-style installs**, also do a quick self-test of the
+reminder script itself (this is independent of any runtime envelope
+shape — relies only on the script's own contract):
+
+```bash
+echo '{"input":{"prompt":"hi"},"output":{}}' \
+  | python hooks/light_rip_reminder.py --format harness
+```
+
+Pass criteria: exit code 0, stdout non-empty, stdout contains the
+substring `Evidence Before Claims` (a literal marker from
+`reminder.md`). If any check fails, the script cannot read the
+reminder or its output does not carry it — the runtime would inject
+nothing.
+
+This self-test proves the **script-side** wiring. It does **not**
+prove the runtime actually invokes the hook on real prompts — that
+requires observing one real prompt and confirming the reminder
+content shows up in the agent's context.
+
 #### Breaking change vs older releases
 
 Earlier versions of `install_general_agent_hook.py` auto-installed

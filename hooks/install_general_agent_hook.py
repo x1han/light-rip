@@ -143,6 +143,11 @@ Restart the runtime.
 After installing, confirm with:
     python {skill}/hooks/verify_install.py --agent opencode
 
+(Path 1 has no script to spawn, so there is no self-test to run here.
+Confirm `verify_install.py` says PASS and observe one real prompt
+to make sure the runtime concatenates `reminder.md` into the
+system prompt.)
+
 == Path 2: hook — runtime has a UserPromptSubmit hook layer ==
 
 **When this fits**: your runtime has a documented mechanism to invoke
@@ -208,6 +213,32 @@ installer to edit `~/.claude/` or `~/.codex/`.
 
 After installing, confirm with:
     python {skill}/hooks/verify_install.py --agent zcode
+
+Then do a self-test of the reminder script — this verifies the script
+itself can start and read `reminder.md`, independent of any runtime's
+envelope shape:
+
+    echo '{{"input":{{"prompt":"hi"}},"output":{{}}}}' \\
+        | python {reminder_py} --format harness
+
+Pass criteria (do not assume any specific envelope field names —
+different runtimes use different shapes; rely on the reminder script's
+own contract instead):
+  - exit code 0
+  - stdout is non-empty
+  - stdout contains the substring "Evidence Before Claims" (a literal
+    marker from `reminder.md`)
+
+If any of those fail, the script is broken at this path: it cannot
+start, it cannot read `reminder.md`, or its output does not carry the
+reminder content. The runtime would inject nothing. Re-check the
+configured `command` / `args` (Path 2) or `instructions` entry
+(Path 1).
+
+This self-test does NOT prove the runtime will actually invoke the
+hook on real prompts. It only proves the script-side half is wired
+up. To prove the runtime half, observe one real prompt's behavior
+and confirm the reminder content shows up in the agent's context.
 
 == Choosing between the two paths ==
 
