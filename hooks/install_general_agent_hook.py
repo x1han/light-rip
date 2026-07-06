@@ -166,9 +166,19 @@ The reminder script contract is the same on every runtime:
 
 **Worked example — ZCode**:
 
-ZCode stores user-level config at `~/.zcode/config.json`. Its loader
-(in `resources/app.asar → out/host/index.js`, function
-`fromZCodeHooksConfig`) reads a `hooks` block of this shape:
+ZCode stores its user-level config at `~/.zcode/cli/config.json`.
+(Note: there is also a `~/.zcode/v2/config.json` and a top-level
+`~/.zcode/config.json`, but ZCode's hook loader does NOT read those —
+it reads `cli/config.json`.) Verified by inspecting the asar source:
+
+  - `function bF(e, t)` (the `getRootDir` function in
+    `resources/app.asar → out/host/index.js`) resolves
+    `e === "zcode"` with `t` undefined to `fg(home, ".zcode", "cli")`.
+  - `function b_(e, t)` (the `getConfigPath` function) then appends
+    `"config.json"`. Final result: `~/.zcode/cli/config.json`.
+
+The same loader's `fromZCodeHooksConfig` reads a `hooks` block of this
+shape:
 
   - top-level `hooks` keys allowed: `enabled`, `timeoutMs`,
     `maxOutputBytes`, `events`.
@@ -180,20 +190,24 @@ ZCode stores user-level config at `~/.zcode/config.json`. Its loader
     main hook path silently skips entries of other types.
 
 Install:
-  1. Open `~/.zcode/config.json`. Preserve all existing top-level
-     keys (API keys, providers, locale, …). Use Python
-     `json.load` + dict merge + `json.dump` rather than text editing.
-  2. Make sure `hooks.enabled` is `true`.
-  3. Under `hooks.events.UserPromptSubmit`, append an entry with:
+  1. Open `~/.zcode/cli/config.json`. Preserve all existing top-level
+     keys (CLI state, …). Use Python `json.load` + dict merge +
+     `json.dump` rather than text editing.
+  2. Make sure `hooks.enabled` is `true` (only set it if absent; do
+     not clobber a deliberate `false`).
+  3. Set `hooks.timeoutMs` and `hooks.maxOutputBytes` only if absent
+     (do not overwrite the user's chosen values).
+  4. Under `hooks.events.UserPromptSubmit`, append an entry with:
        matcher: "" (or empty)
        hooks[0].type = "process"
        hooks[0].command = {python_exe}
        hooks[0].args = [{reminder_py}, "--format", "harness"]
        hooks[0].timeoutMs = 5000
      Do not delete existing entries that belong to other tools.
-  4. Back up the file first (`cp ~/.zcode/config.json
-     ~/.zcode/config.json.bak-YYYY-MM-DD`).
-  5. Restart ZCode (the desktop app re-reads `config.json` on launch).
+  5. Back up the file first (`cp ~/.zcode/cli/config.json
+     ~/.zcode/cli/config.json.bak-YYYY-MM-DD`).
+  6. Restart ZCode (the desktop app re-reads `cli/config.json` on launch).
+     Until restart, the hook will not fire.
 
 **By analogy for any other agent**: look up the runtime's hook schema
 in its own docs or in the loader source. Write a matching entry whose
