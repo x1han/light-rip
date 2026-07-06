@@ -1,249 +1,298 @@
 #!/usr/bin/env python3
-"""Install the Light RIP reminder as a UserPromptSubmit hook for any agent.
+"""Light RIP general installer — prompt dispatcher.
 
-The "general" installer covers agent runtimes that are not the original
-two (Claude Code / Codex). Those two keep their dedicated installers
-(`install_claude_hook.py` / `install_codex_hook.py`) because they
-shipped first and the call shape is hardcoded into their config files.
+This script is the universal entry point for installing the Light RIP
+reminder on **any** agent runtime. Unlike `install_codex_hook.py` and
+`install_claude_hook.py`, which know the exact hook schema of their
+target runtime, this script does **not** write any files. Its sole job
+is to print a structured prompt that:
 
-The general installer writes a Mavis-style hook file (markdown with
-frontmatter + fenced bash block) into the target agent's hooks
-directory. The body runs `light_rip_reminder.py --format <format>`,
-where `<format>` selects the correct JSON envelope for that agent.
+  1. States what the reminder is and where its source files live.
+  2. Walks the receiving agent through two reference examples —
+     ZCode (hook path) and OpenCode (instructions path) — and asks
+     it to install for its own runtime by analogy.
+  3. Names the verify script to confirm the install landed.
 
-Defaults target Mavis / Mavis Code (the primary "other agent" use
-case). Override flags to install for any other runtime that uses the
-same hook-file convention.
+The two reference paths the prompt covers:
 
-Windows note
-------------
-The Mavis hook runner executes the body of a fenced `bash` block
-through `sh` on Windows. Git for Windows ships `sh.exe` at
-`C:\\Program Files\\Git\\bin\\sh.exe`, but it is not on PATH by default.
-The installer detects this and appends Git Bash to the user's PATH via
-the registry (with a `SendMessageTimeout` broadcast so new processes
-pick it up immediately).
+  - hook        — runtime has a `UserPromptSubmit` hook layer; the
+                  reminder script gets invoked on every prompt and
+                  injects `reminder.md` into the context.
+  - instructions — runtime reads a config file that lists context
+                  files; the runtime itself concatenates `reminder.md`
+                  onto the system prompt, no script invocation needed.
 
-The currently running Mavis daemon keeps the PATH it was launched
-with. **Restart the agent runtime** after installing so the new PATH
-takes effect for the hook runner. Pass `--no-path-fix` if you prefer
-to manage PATH yourself.
+After running this script, feed the printed prompt to the target
+agent (or follow its steps yourself). Then run
+`hooks/verify_install.py` to confirm the install.
+
+Backward-compatibility note
+---------------------------
+Earlier versions of this script auto-installed for one specific
+runtime using flags such as `--data-dir`, `--hooks-dir`, `--format`,
+and `--no-path-fix`. Those flags are removed; passing them now triggers
+argparse errors. The new design is runtime-agnostic — the agent that
+receives the printed prompt decides the install path.
 """
 from __future__ import annotations
 
 import argparse
 import json
-import os
-import shutil
-import subprocess
 import sys
-import winreg  # type: ignore[import-not-found]
 from pathlib import Path
 
 NAMESPACE = "light-rip-reminder"
-HOOK_FILE_NAME = f"{NAMESPACE}.md"
-
-# Default target = Mavis. The "general" name reflects the script's
-# flexibility, not that it is agent-agnostic on disk — every agent
-# runtime has its own hooks directory layout, so we still need a
-# concrete default.
-DEFAULT_AGENT = "mavis"
-DEFAULT_DATA_DIR = None  # resolved from $MAVIS_DATA_DIR or ~/.mavis
-DEFAULT_FORMAT = "mavis"
-DEFAULT_EVENT = "UserPromptSubmit"
-DEFAULT_PRIORITY = 5
-DEFAULT_TIMEOUT_MS = 5000
-
-# Common Git-for-Windows install locations to probe when sh is missing.
-GIT_BASH_CANDIDATES = [
-    Path(r"C:\Program Files\Git\bin"),
-    Path(r"C:\Program Files (x86)\Git\bin"),
-]
+PROMPT_MARKER_START = "[light-rip-install-prompt]"
+PROMPT_MARKER_END = "[end light-rip-install-prompt]"
 
 
 # ---------- path resolution ----------
 
-def mavis_data_dir() -> Path:
-    return Path(os.environ.get("MAVIS_DATA_DIR") or Path.home() / ".mavis")
+def skill_root() -> Path:
+    """<skill>/hooks/install_general_agent_hook.py → <skill>."""
+    return Path(__file__).resolve().parents[1]
 
 
-def resolve_hooks_dir(args: argparse.Namespace) -> Path:
-    if args.hooks_dir:
-        return args.hooks_dir.expanduser().resolve()
-    data_dir = (args.data_dir.expanduser().resolve() if args.data_dir
-                else mavis_data_dir())
-    return data_dir / "agents" / args.agent / "hooks"
+def reminder_script() -> Path:
+    return skill_root() / "hooks" / "light_rip_reminder.py"
 
 
-# ---------- hook file generation ----------
-
-def build_hook_file(python_exe: Path, hook_script: Path,
-                    event: str, format_name: str,
-                    priority: int, timeout_ms: int) -> str:
-    """Build a Mavis-style hook definition (markdown + frontmatter)."""
-    # Forward slashes inside the command — Python handles both, and
-    # forward slashes avoid backslash-escape headaches in the markdown
-    # fence. sh will pass the path through verbatim to python.
-    py = str(python_exe).replace("\\", "/")
-    script = str(hook_script).replace("\\", "/")
-    body = (
-        "---\n"
-        f"hookEvent: {event}\n"
-        f"type: script\n"
-        f"priority: {priority}\n"
-        f"timeout: {timeout_ms}\n"
-        f"matcher: \"\"\n"
-        "---\n"
-        "\n"
-        "```bash\n"
-        f"\"{py}\" \"{script}\" --format {format_name}\n"
-        "```\n"
-    )
-    return body
+def reminder_md() -> Path:
+    return skill_root() / "reminder.md"
 
 
-def upsert_hook_file(hooks_dir: Path, body: str) -> Path:
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-    target = hooks_dir / HOOK_FILE_NAME
-    target.write_text(body, encoding="utf-8")
-    return target
+def detect_python() -> str:
+    return str(Path(sys.executable).resolve())
 
 
-# ---------- Windows sh / Git Bash detection ----------
+# ---------- prompt rendering ----------
 
-def sh_on_path() -> bool:
-    return shutil.which("sh") is not None
+def build_prompt(agent: str, target_runtime: str,
+                 python_exe: str, skill: Path) -> str:
+    reminder_py = reminder_script()
+    reminder_path = reminder_md()
 
+    return f"""{PROMPT_MARKER_START}
+agent: {agent}
+target-runtime: {target_runtime}
+python: {python_exe}
+skill-root: {skill}
+reminder-md: {reminder_path}
+reminder-script: {reminder_py}
 
-def find_git_bash_bin() -> Path | None:
-    for cand in GIT_BASH_CANDIDATES:
-        if cand and (cand / "sh.exe").is_file():
-            return cand
-    return None
+You are tasked with installing the **Light RIP reminder** for the agent
+runtime identified as `{agent}`. The reminder source lives at
+`{reminder_path}`. The reminder script — which reads it on every hook
+fire and prints a JSON envelope — is `{reminder_py}` and accepts a `--format` flag whose default
+value is `harness`. The `harness` format emits the standard
+`hookSpecificOutput.additionalContext` envelope that most runtimes
+expect.
 
+There are exactly two install paths. Pick the one that matches your
+runtime. The two paths below are fully worked examples; for any
+other runtime, **install by analogy**.
 
-def add_to_user_path(bin_dir: Path) -> tuple[bool, str]:
-    """Append bin_dir to the user's persistent PATH. Returns (changed, message)."""
-    if not isinstance(bin_dir, Path):
-        bin_dir = Path(bin_dir)
-    bin_str = str(bin_dir)
+== Path 1: instructions — runtime reads a config that lists context files ==
 
-    # Read current user PATH directly from the registry so we know
-    # exactly what we'd be appending to (the live process PATH may
-    # differ from the persistent one).
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment",
-                            0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as key:
-            try:
-                existing, _ = winreg.QueryValueEx(key, "Path")
-            except FileNotFoundError:
-                existing = ""
-    except OSError as exc:
-        return False, f"could not read user PATH: {exc}"
+**When this fits**: your runtime reads a JSON/YAML/TOML config file
+that contains a list of "instructions", "system prompt fragments",
+"context files", or similar. The runtime itself concatenates those
+files onto the system prompt at startup. No script invocation needed.
 
-    if bin_str.lower() in existing.lower():
-        return False, f"{bin_str} already on user PATH"
+**Worked example — OpenCode**:
 
-    new_path = f"{existing};{bin_str}" if existing else bin_str
-    if len(new_path) > 1024:
-        # setx truncates at 1024 chars. Drop oldest entries first.
-        parts = [p for p in existing.split(";") if p]
-        while parts and len(";".join(parts) + ";" + bin_str) > 1024:
-            parts.pop(0)
-        new_path = (";".join(parts) + ";" + bin_str) if parts else bin_str
+OpenCode reads `~/.config/opencode/opencode.json` and concatenates
+every path under the `instructions` array onto its system prompt.
 
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment",
-                            0, winreg.KEY_SET_VALUE) as key:
-            winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
-    except OSError as exc:
-        return False, f"could not write user PATH: {exc}"
+Install:
+  1. Open (or create) `~/.config/opencode/opencode.json`.
+  2. Make sure the top-level `instructions` key is a JSON array.
+     If it already exists, append. If not, create it.
+  3. Append `{reminder_path}` (with double quotes inside the JSON
+     string) to that array. The full schema is:
+         {{
+           "$schema": "https://opencode.ai/config.json",
+           "instructions": ["{reminder_path}"]
+         }}
+     If `instructions` already had entries, append to the array,
+     do not overwrite.
+  4. Save the file. Restart OpenCode — it re-reads `instructions`
+     on launch.
 
-    # Broadcast WM_SETTINGCHANGE so new processes pick it up without
-    # requiring a sign-out.
-    try:
-        subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command",
-             "Add-Type -Namespace W -Name B -MemberDefinition '[DllImport(\"user32.dll\")] public static extern int SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam, uint flags, uint timeout, out int result);'; "
-             "[W.B]::SendMessageTimeout([IntPtr]0xFFFF, 0x001A, [IntPtr]0, \"Environment\", 2, 5000, [ref]0) | Out-Null"],
-            capture_output=True, timeout=10,
-        )
-    except Exception:
-        pass
-    return True, f"added {bin_str} to user PATH (restart the agent runtime to take effect)"
+Why this works: OpenCode has no hook layer; it has no notion of
+"reminder script invocation". But it already has a documented
+mechanism for injecting extra context into every prompt — `instructions`.
+We use it. No Python is involved.
+
+**By analogy for any other agent**: if its config has anything that
+looks like "instructions" / "system_prompt_append" / "context_files"
+/ "prepend_files" / etc., add `"{reminder_path}"` to that list.
+Restart the runtime.
+
+After installing, run:
+    python {skill}/hooks/verify_install.py --agent {agent}
+
+== Path 2: hook — runtime has a UserPromptSubmit hook layer ==
+
+**When this fits**: your runtime has a documented mechanism to invoke
+a script (or run a JSON-defined hook entry) on every user prompt,
+BEFORE the agent reasons. Examples include Codex/Claude-style hooks
+or any runtime that exposes `UserPromptSubmit` (or a similarly named)
+event.
+
+The reminder script contract is the same on every runtime:
+  - Stdin: a JSON object `{{"input": ..., "output": ...}}` from the runtime.
+  - Stdout: a JSON object that the runtime merges into `output`
+    (the `harness` format — `additionalContext` field — works on most).
+  - Non-zero exit / timeout is isolated by the runtime; later hooks
+    still run. The script fails open: missing `reminder.md` does not
+    block the prompt.
+
+**Worked example — ZCode**:
+
+ZCode stores user-level config at `~/.zcode/config.json`. Its loader
+(in `resources/app.asar → out/host/index.js`, function
+`fromZCodeHooksConfig`) reads a `hooks` block of this shape:
+
+  - top-level `hooks` keys allowed: `enabled`, `timeoutMs`,
+    `maxOutputBytes`, `events`.
+  - `events.<Event>[i] = {{ matcher?, hooks: [...] }}`
+  - `hooks[i] required fields`: `type="process"`, `command`,
+    `args?` (list), `timeoutMs?` (number).
+
+  - The `type` MUST be `"process"` (not `"command"`); ZCode's
+    main hook path silently skips entries of other types.
+
+Install:
+  1. Open `~/.zcode/config.json`. Preserve all existing top-level
+     keys (API keys, providers, locale, …). Use Python
+     `json.load` + dict merge + `json.dump` rather than text editing.
+  2. Make sure `hooks.enabled` is `true`.
+  3. Under `hooks.events.UserPromptSubmit`, append an entry with:
+       matcher: "" (or empty)
+       hooks[0].type = "process"
+       hooks[0].command = {python_exe}
+       hooks[0].args = [{reminder_py}, "--format", "harness"]
+       hooks[0].timeoutMs = 5000
+     Do not delete existing entries that belong to other tools.
+  4. Back up the file first (`cp ~/.zcode/config.json
+     ~/.zcode/config.json.bak-YYYY-MM-DD`).
+  5. Restart ZCode (the desktop app re-reads `config.json` on launch).
+
+**By analogy for any other agent**: look up the runtime's hook schema
+in its own docs or in the loader source. Write a matching entry whose
+command spawns `{reminder_py} --format harness` with the runtime's
+expected JSON shape. The reminder script will print a
+`hookSpecificOutput.additionalContext` envelope that most runtimes
+accept verbatim.
+
+**Dedicated installers exist for two well-known runtimes**:
+  - Codex:        `python {skill}/hooks/install_codex_hook.py`
+                  (writes `~/.codex/hooks.json` JSON entry).
+  - Claude Code:  `python {skill}/hooks/install_claude_hook.py`
+                  (writes `~/.claude/settings.json` JSON entry).
+If your runtime IS Codex or Claude Code, run the dedicated installer
+instead of following the ZCode analogy. Do not use this general
+installer to edit `~/.codex/` or `~/.claude/`.
+
+After installing, run:
+    python {skill}/hooks/verify_install.py --agent {agent} \\
+        --target-runtime {target_runtime}
+
+== Choosing between the two paths ==
+
+Prefer **Path 1 (instructions)** whenever it fits — it has no
+process to spawn, no timeout to tune, no JSON envelope to merge, and
+the runtime does all the work. Reach for **Path 2 (hook)** only when
+the runtime truly has no `instructions`-style config and only a hook
+event will reach every prompt.
+
+If your runtime has neither, ask the user where the runtime stores
+its user-level configuration, or inspect its binary resources for
+the strings `UserPromptSubmit`, `hookEvent`, `additionalContext`,
+`matcher`, `instructions`. If you find a relevant config, use it.
+
+== Hard requirements (apply to both paths) ==
+
+  - Never use this general installer to modify `~/.codex/` or
+    `~/.claude/`. Those have dedicated installers and a fixed schema.
+  - Never overwrite a hook entry that does not belong to the
+    `{NAMESPACE}` namespace. Always check `metadata.hook_namespace`
+    (legacy JSON hooks) or `command` substring (process hooks) before
+    replacing.
+  - Back up any config file you modify (`<path>.bak-<YYYY-MM-DD>`
+    suffix).
+  - The reminder file is runtime-neutral; do not edit
+    `{reminder_path}` to tailor it to the target runtime.
+  - After writing, restart the runtime so it picks up the new config.
+
+== Output contract ==
+
+After install, the receiving agent must return a single JSON object
+on its output channel (chat reply, stdout, etc.):
+
+    {{
+      "ok": true|false,
+      "kind": "hook"|"instructions",
+      "paths": ["<absolute path>", ...],
+      "notes": "<free text — caveats, restart instructions, etc.>"
+    }}
+
+The caller will then run `verify_install.py` to confirm.
+
+{PROMPT_MARKER_END}"""
 
 
 # ---------- entry point ----------
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Install the Light RIP reminder as a UserPromptSubmit hook "
-                    "for a general agent runtime (defaults to Mavis)."
+        description="Print a Light RIP install prompt for the target agent. "
+                    "Does not write files itself; the receiving agent executes "
+                    "the install.",
     )
-    parser.add_argument("--agent", default=os.environ.get("LIGHT_RIP_AGENT", DEFAULT_AGENT),
-                        help=f"Target agent name (default: {DEFAULT_AGENT}).")
-    parser.add_argument("--data-dir", type=Path,
-                        help="Agent data dir (default: $MAVIS_DATA_DIR or ~/.mavis).")
-    parser.add_argument("--hooks-dir", type=Path,
-                        help="Override hooks directory directly. Skips data-dir/agent resolution.")
-    parser.add_argument("--format", default=os.environ.get("LIGHT_RIP_FORMAT", DEFAULT_FORMAT),
-                        choices=["harness", "mavis"],
-                        help="Reminder output format (default: mavis).")
-    parser.add_argument("--event", default=DEFAULT_EVENT,
-                        help=f"Hook event name (default: {DEFAULT_EVENT}).")
-    parser.add_argument("--priority", type=int, default=DEFAULT_PRIORITY,
-                        help=f"Hook priority (lower runs first; default {DEFAULT_PRIORITY}).")
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_MS,
-                        help=f"Hook timeout in ms (default {DEFAULT_TIMEOUT_MS}).")
-    parser.add_argument("--no-path-fix", action="store_true",
-                        help="Do not attempt to add Git Bash to user PATH on Windows.")
+    parser.add_argument("--agent", required=True,
+                        help="Target agent name (e.g. zcode, opencode, "
+                             "aider, cursor, continue, ...).")
+    parser.add_argument("--target-runtime",
+                        help="Runtime the receiving agent identifies as. "
+                             "Defaults to the value of --agent.")
+    parser.add_argument("--python",
+                        help="Absolute path to the Python interpreter to "
+                             "encode in the prompt. Defaults to the "
+                             "interpreter running this script.")
+    parser.add_argument("--skill-root",
+                        help="Absolute path to the Light RIP skill root. "
+                             "Defaults to the directory containing this "
+                             "script's parent.")
     args = parser.parse_args()
 
-    hook_script = Path(__file__).resolve().parent / "light_rip_reminder.py"
-    if not hook_script.exists():
-        print(json.dumps({"error": f"reminder script not found at {hook_script}"}))
+    skill = (Path(args.skill_root).expanduser().resolve()
+             if args.skill_root else skill_root())
+    if not (skill / "reminder.md").is_file():
+        print(json.dumps({"error": f"reminder.md not found under {skill}"}),
+              file=sys.stderr)
+        return 1
+    if not (skill / "hooks" / "light_rip_reminder.py").is_file():
+        print(json.dumps({"error": f"reminder script not found under {skill}"}),
+              file=sys.stderr)
         return 1
 
-    hooks_dir = resolve_hooks_dir(args)
-    python_exe = Path(sys.executable).resolve()
+    target_runtime = args.target_runtime or args.agent
+    python_exe = args.python or detect_python()
 
-    body = build_hook_file(
+    prompt = build_prompt(
+        agent=args.agent,
+        target_runtime=target_runtime,
         python_exe=python_exe,
-        hook_script=hook_script,
-        event=args.event,
-        format_name=args.format,
-        priority=args.priority,
-        timeout_ms=args.timeout,
+        skill=skill,
     )
-    target = upsert_hook_file(hooks_dir, body)
-
-    result = {
-        "hook_file": str(target),
-        "agent": args.agent,
-        "format": args.format,
-        "event": args.event,
-        "namespace": NAMESPACE,
-    }
-
-    # Windows PATH check: the hook runner needs `sh` to execute the
-    # bash block. If it's missing, try to add Git Bash to user PATH.
-    if os.name == "nt" and not sh_on_path() and not args.no_path_fix:
-        git_bin = find_git_bash_bin()
-        if git_bin is not None:
-            changed, msg = add_to_user_path(git_bin)
-            result["path_fix"] = {
-                "attempted": True, "changed": changed, "message": msg,
-                "note": "Restart the agent runtime for the new PATH to take effect.",
-            }
-        else:
-            result["path_fix"] = {
-                "attempted": False,
-                "message": "Git Bash not found in standard locations; install Git for Windows or ensure `sh` is on PATH.",
-            }
-    elif os.name == "nt" and not sh_on_path() and args.no_path_fix:
-        result["path_fix"] = {"attempted": False, "message": "--no-path-fix set; ensure sh is on the runtime's PATH manually."}
-
-    print(json.dumps(result, ensure_ascii=True, indent=2))
+    # Print the prompt to stdout, no leading/trailing decoration.
+    # Callers can pipe it into another agent's input channel verbatim.
+    sys.stdout.write(prompt)
+    if not prompt.endswith("\n"):
+        sys.stdout.write("\n")
+    sys.stdout.flush()
     return 0
 
 

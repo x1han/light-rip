@@ -13,6 +13,9 @@ Installation is not complete until the reminder hook is mounted. If you install 
 
 - Codex: `python hooks/install_codex_hook.py`
 - Claude Code: `python hooks/install_claude_hook.py`
+- Any other agent (Mavis, ZCode, OpenCode, Aider, Cursor, Continue, …): `python hooks/install_general_agent_hook.py --agent <name>`. This prints a structured install prompt that the receiving agent executes; the script itself does not write files.
+
+After the install (whichever path), confirm with `python hooks/verify_install.py --agent <name>`.
 
 Do not present hook installation as optional. The hook is part of the default installation.
 

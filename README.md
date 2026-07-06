@@ -48,31 +48,71 @@ cd "$HOME/.claude/skills/light-rip"
 python hooks/install_claude_hook.py
 ```
 
-### Other agents (Mavis / Mavis Code)
+### Other agents (Mavis / ZCode / OpenCode / anything else)
 
-For any agent runtime that is not Claude Code or Codex, use the general installer. Defaults target Mavis; override flags install for any runtime that uses the same hook-file convention.
+For any agent runtime that is not Codex or Claude Code, use the **general installer**. It does **not** write any files itself — instead it prints a structured prompt that describes how to install the Light RIP reminder on the target agent. Feed that prompt to the agent (or to yourself in a chat); the agent then picks the right install path and performs it.
 
 ```bash
 git clone https://github.com/x1han/light-rip
 cd light-rip
-python hooks/install_general_agent_hook.py
+python hooks/install_general_agent_hook.py --agent <agent-name>
+# e.g. --agent zcode, --agent opencode, --agent aider, --agent cursor,
+#      --agent continue, --agent mavis, ...
 ```
 
-#### Windows: Git Bash PATH
+The printed prompt walks the agent through a decision tree:
 
-The Mavis hook runner executes the body of a fenced `bash` block through `sh` on Windows. Git for Windows ships `sh.exe` at `C:\Program Files\Git\bin\sh.exe`, but it is not on `PATH` by default. The installer detects this and appends Git Bash to the user's `PATH` via the registry (with a `SendMessageTimeout` broadcast so new processes pick it up immediately).
+  1. **Hook** — if the runtime has a `UserPromptSubmit` hook layer (ZCode,
+     Mavis, …), the agent writes the hook entry itself or runs the
+     matching dedicated installer.
+  2. **Instructions** — if the runtime reads a list of context files
+     (OpenCode's `instructions` field, …), the agent appends a path
+     pointing to `reminder.md` and restarts the runtime.
+  3. **Skill-only** — as a last resort, the agent copies the whole
+     `light-rip/` folder into the runtime's skill directory. The
+     reminder hook will not auto-fire, but `SKILL.md` is reachable.
 
-The currently running Mavis daemon keeps the PATH it was launched with, so restart the agent runtime after installing so the new PATH takes effect. If you prefer to manage PATH yourself, pass `--no-path-fix` to the installer and ensure `sh` is on the runtime's PATH beforehand.
+After the agent finishes, confirm the install landed:
+
+```bash
+python hooks/verify_install.py --agent <agent-name>          # human-readable
+python hooks/verify_install.py --agent <agent-name> --json   # machine-readable
+```
+
+#### Breaking change vs older releases
+
+Earlier versions of `install_general_agent_hook.py` auto-installed
+for Mavis and accepted `--data-dir`, `--hooks-dir`, `--format`, and
+`--no-path-fix`. Those flags are removed. The Mavis auto-install path
+is still reachable — it is now one of the prompts in the printed
+output — so existing Mavis setups continue to work via the new prompt
+dispatcher.
+
+The previous Windows PATH-fix behavior (appending Git Bash to the
+user PATH via the registry) has also moved out of the installer. If
+the chosen install path is the Mavis hook and `sh` is missing from
+PATH, the receiving agent must add it manually before invoking the
+reminder script.
 
 ## Updating
 
-`cd` into the installed `light-rip` folder, run `git pull`, then re-run the installer that matches your agent (see Installation). Restart the agent runtime after.
+`cd` into the installed `light-rip` folder, run `git pull`, then
+re-run the installer that matches your agent (see Installation).
+For the general installer, simply re-run:
+
+```bash
+python hooks/install_general_agent_hook.py --agent <agent-name>
+```
+
+and feed the new prompt to the target agent. Restart the agent
+runtime after.
 
 ## Files
 
 - `SKILL.md` — the skill instructions.
-- `reminder.md` — the context injected by the hook.
-- `hooks/light_rip_reminder.py` — the shared hook command. Multi-format via `--format` (`harness` for Claude Code / Codex back-compat; `mavis` for Mavis).
-- `hooks/install_codex_hook.py` — Codex-specific installer.
-- `hooks/install_claude_hook.py` — Claude Code-specific installer.
-- `hooks/install_general_agent_hook.py` — generic installer for any other agent runtime.
+- `reminder.md` — the context injected by the hook. Runtime-neutral.
+- `hooks/light_rip_reminder.py` — the shared hook command. Multi-format via `--format` (`harness` for Claude Code / Codex / ZCode; `mavis` for Mavis).
+- `hooks/install_codex_hook.py` — Codex-specific installer (auto-writes `~/.codex/hooks.json`).
+- `hooks/install_claude_hook.py` — Claude Code-specific installer (auto-writes `~/.claude/settings.json`).
+- `hooks/install_general_agent_hook.py` — generic installer for any other agent runtime. Prints an install prompt; does not write files itself.
+- `hooks/verify_install.py` — verifies that an install (Codex / Claude / ZCode / Mavis / OpenCode / generic) landed correctly.
