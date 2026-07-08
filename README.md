@@ -128,14 +128,7 @@ the reminder script.
 
 `cd` into the installed `light-rip` folder, run `git pull`, then
 re-run the installer that matches your agent (see Installation).
-For the general installer, simply re-run:
 
-```bash
-python hooks/install_general_agent_hook.py
-```
-
-and feed the new prompt to the target agent. Restart the agent
-runtime after.
 
 ## Files
 
