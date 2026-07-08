@@ -2,7 +2,7 @@
 
 Light RIP is an agent skill package, not a software application.
 
-`RIP` names the three safeguards: `Review`, `Implement`, and `Plan`. In execution, every tier runs `Plan -> Implement -> Verify` — a lightweight loop with extra review passes for medium and large.
+`RIP` names the three safeguards: `Review`, `Implement`, and `Plan`. In execution, every tier runs `Plan -> Implement -> Review` — a lightweight loop with extra review passes for medium and large.
 
 - **`Tiny`**: the main session plans, implements, verifies, and self-reviews. No subagents.
 - **`Medium`**: the main session writes an inline plan; a reviewer subagent does a pre-work review; the main session implements and verifies; the reviewer (or a fresh one) does a post-work review of the diff; the main session fixes findings.
