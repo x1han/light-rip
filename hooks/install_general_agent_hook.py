@@ -182,7 +182,10 @@ shape:
 
   - top-level `hooks` keys allowed: `enabled`, `timeoutMs`,
     `maxOutputBytes`, `events`.
-  - `events.<Event>[i] = {{ matcher?, hooks: [...] }}`
+  - `events.<Event>[i] = {{ matcher?, hooks: [...] }}` where
+    `matcher`, if present, MUST be a non-empty string (Zod schema
+    enforces `min(1)`; the runtime silently drops the whole `hooks`
+    block on schema failure). Omit `matcher` to match all prompts.
   - `hooks[i] required fields`: `type="process"`, `command`,
     `args?` (list), `timeoutMs?` (number).
 
@@ -197,8 +200,12 @@ Install:
      not clobber a deliberate `false`).
   3. Set `hooks.timeoutMs` and `hooks.maxOutputBytes` only if absent
      (do not overwrite the user's chosen values).
-  4. Under `hooks.events.UserPromptSubmit`, append an entry with:
-       matcher: "" (or empty)
+  4. Under `hooks.events.UserPromptSubmit`, append an entry. The matcher
+     field is OPTIONAL — omit it (do NOT write `matcher: ""`, because
+     ZCode's Zod schema rejects empty strings with `min(1)` and silently
+     drops the whole `hooks` block). If you want to scope the hook to a
+     specific prompt pattern, write e.g. `matcher: "*"` or `matcher: ".+"`.
+     The entry shape:
        hooks[0].type = "process"
        hooks[0].command = {python_exe}
        hooks[0].args = [{reminder_py}, "--format", "harness"]
