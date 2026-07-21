@@ -66,7 +66,9 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 2. Planning
    Tiny: 1-2 inline bullets.
    Medium: main session writes 2-5 bullets inline.
-   Large: planner subagent is read-only and outputs at most 15 lines:
+   Large: read [`agents/planner.md`](agents/planner.md) and embed its body in the planner
+   subagent prompt, substituting any `<placeholder>` markers per the prompt body, then send.
+   The planner is read-only and outputs at most 15 lines:
    - goal
    - assumptions
    - files or areas to inspect/change
@@ -77,25 +79,35 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 
 2.5. Pre-work review (medium and large)
    After the plan exists, MUST spawn a reviewer subagent to scrutinize it before any code is written.
-   Use the [Plan Reviewer prompt](agents/plan_reviewer.md). The reviewer is read-only and reports findings by severity.
+   Read [`agents/plan_reviewer.md`](agents/plan_reviewer.md) and embed its body in the subagent
+   prompt, substituting any `<placeholder>` markers per the prompt body, then send.
+   (If a user-provided reviewer skill is available, prefer it instead — see Agent Prompts.)
+   The reviewer is read-only and reports findings by severity.
    Address P0/P1 issues by revising the plan. Do not start implementation until pre-work review
    approves or only flags non-blocking P2s.
 
 3. Implementation
    Tiny/medium: main session implements and verifies.
-   Large: implementer subagent implements and self-verifies (runs the planned verification commands).
+   Large: read [`agents/implementer.md`](agents/implementer.md) and embed its body in the subagent
+   prompt, substituting any `<placeholder>` markers per the prompt body, then send. The implementer
+   subagent implements and self-verifies (runs the planned verification commands).
 
 3.5. Independent verification (large only)
    After the implementer reports verification complete, MUST spawn a verifier subagent to re-run
-   the verification commands with fresh eyes. Use the [Verifier prompt](agents/verifier.md). The verifier is
-   read-only and reports which checks passed, which failed, and any verification gap it noticed.
+   the verification commands with fresh eyes. Read [`agents/verifier.md`](agents/verifier.md) and
+   embed its body in the subagent prompt, substituting any `<placeholder>` markers per the prompt
+   body, then send. The verifier is read-only and reports which checks passed, which failed, and
+   any verification gap it noticed.
    Treat verifier findings (failed checks, missing checks, inadequate commands) as P0 issues —
    block completion until they are resolved or explicitly waived with evidence.
 
 4. Post-work review (medium and large)
    After implementation (and verifier, for large), MUST spawn a reviewer subagent to scrutinize
    the diff and verification output. For Large, the reviewer sees both the implementer's report
-   and the verifier's independent report. Use the [Reviewer prompt](agents/reviewer.md). The reviewer is read-only.
+   and the verifier's independent report. Read [`agents/reviewer.md`](agents/reviewer.md) and
+   embed its body in the subagent prompt, substituting any `<placeholder>` markers per the prompt
+   body, then send. (If a user-provided reviewer skill is available, prefer it instead — see
+   Agent Prompts.) The reviewer is read-only.
    Tiny: skip this step — main session self-reviews in step 5.
 
 5. Fix loop (all tiers)
@@ -148,6 +160,7 @@ Complete only when:
 - Treating the verifier as a replacement for the implementer's self-verification or the post-work reviewer. The verifier is a separate role: it executes verification commands, while the reviewer reads verification output.
 - Doing medium review in the main session. Medium requires pre-work and post-work reviewer subagents.
 - Doing large planning or implementation in the main session. Large requires planner, pre-work reviewer, implementer, verifier, and post-work reviewer subagents.
+- Spawning a subagent without first reading its `agents/<role>.md` template. The role prompts are passive files and are not auto-loaded; read the matching file and embed its body in the subagent prompt before sending.
 - Letting the planner write a long design doc. Cap it.
 - Letting reviewers or the verifier rewrite code. Keep review and verification read-only.
 - Treating P2 suggestions as mandatory. Avoid churn.
