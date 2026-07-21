@@ -595,8 +595,8 @@ def render_human(script_checks: list[dict], runtime_checks: dict,
             lines.append(f"         config.toml — {ct.get('detail', '')}")
     if not any_probed:
         lines.append(f"  (no runtime config files found at default locations — "
-                     "install with install_hook_based_agent.py "
-                     "(--runtime claude|codex|zcode), or follow the ZCode worked "
+                     "install with install_hook_based_agent.py install "
+                     "--runtime claude|codex|zcode, or follow the OpenCode worked "
                      "example printed by install_general_agent_hook.py)")
     return "\n".join(lines) + "\n"
 

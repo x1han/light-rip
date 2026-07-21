@@ -756,7 +756,7 @@ def install_zcode(args: argparse.Namespace) -> int:
     new_entry = {
         "type": "process",
         "command": str(python_exe),
-        "args": [str(reminder), "--format", "zcode"],
+        "args": [str(reminder)],
         "timeoutMs": 5000,
     }
     ups_list[:] = [

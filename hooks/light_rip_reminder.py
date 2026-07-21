@@ -4,17 +4,17 @@
 Reads `reminder.md` next to the skill and emits the JSON envelope that
 each supported agent runtime expects from a UserPromptSubmit hook:
 
-  - harness   (default; Claude Code / Codex) — keep the user prompt,
-              inject the reminder as `hookSpecificOutput.additionalContext`.
-  - zcode     (ZCode) — strict-schema envelope. Emits ONLY the
-              documented `additionalContext` field; extras like
-              `continue` / `suppressOutput` / `hookSpecificOutput` are
-              dropped by ZCode's strict validator.
+  - harness   (default; Claude Code / Codex / ZCode) — keep the user
+              prompt, inject the reminder as
+              `hookSpecificOutput.additionalContext`. ZCode also parses
+              this envelope via its generic hook layer.
+  - zcode     (DEPRECATED — kept for back-compat with installs prior
+              to 1.0; use `harness` which ZCode also parses via its
+              generic hook layer)
 
 The reminder file is the single source of truth. Each runtime has a
-thin installer that registers this script as its UserPromptSubmit hook
-with the right --format flag. Adding a new runtime = adding one entry
-to FORMATS.
+thin installer that registers this script as its UserPromptSubmit hook.
+Adding a new runtime = adding one entry to FORMATS.
 
 Hook contract (script type, all runtimes):
   - The runtime passes {"input": ..., "output": ...} as JSON on stdin.
@@ -137,7 +137,7 @@ def main() -> int:
         "--format",
         choices=sorted(FORMATS.keys()),
         default="harness",
-        help="Agent runtime output format (default: harness for Claude Code / Codex back-compat; zcode for ZCode strict-schema).",
+        help="Agent runtime output format. `harness` (default) for Claude Code / Codex / ZCode. `zcode` is deprecated — kept for back-compat with pre-1.0 installs.",
     )
     args = parser.parse_args()
 
