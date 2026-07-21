@@ -2,9 +2,9 @@
 """Light RIP general installer — prompt dispatcher.
 
 This script is the universal entry point for installing the Light RIP
-reminder on **any** agent runtime. Unlike `install_codex_hook.py` and
-`install_claude_hook.py`, which know the exact hook schema of their
-target runtime, this script does **not** write any files and does
+reminder on **any** agent runtime. Unlike `install_hook_based_agent.py`
+(which knows the hook schema for Claude Code, Codex, and ZCode), this
+script does **not** write any files and does
 **not** take a `--agent` argument. Its sole job is to print a
 structured prompt that:
 
@@ -235,14 +235,18 @@ expected JSON shape. The reminder script will print a
 `hookSpecificOutput.additionalContext` envelope that most runtimes
 accept verbatim.
 
-**Dedicated installers exist for two well-known runtimes**:
-  - Claude Code:  `python {skill}/hooks/install_claude_hook.py`
+**Dedicated installers exist for three well-known runtimes**:
+  - Claude Code:  `python {skill}/hooks/install_hook_based_agent.py --runtime claude`
                   (writes `~/.claude/settings.json` JSON entry).
-  - Codex:        `python {skill}/hooks/install_codex_hook.py`
-                  (writes `~/.codex/hooks.json` JSON entry).
-If your runtime IS Claude Code or Codex, run the dedicated installer
-instead of following the ZCode analogy. Do not use this general
-installer to edit `~/.claude/` or `~/.codex/`.
+  - Codex:        `python {skill}/hooks/install_hook_based_agent.py --runtime codex`
+                  (writes `~/.codex/hooks.json` JSON entry and enables
+                  `[features] hooks = true` in `~/.codex/config.toml`).
+  - ZCode:        `python {skill}/hooks/install_hook_based_agent.py --runtime zcode`
+                  (writes `~/.zcode/cli/config.json` process entry).
+If your runtime IS one of these three, run the unified installer with
+the matching `--runtime` flag instead of following the ZCode analogy.
+Do not use this general installer to edit `~/.claude/`, `~/.codex/`, or
+`~/.zcode/`.
 
 After installing, confirm with:
     python {skill}/hooks/verify_install.py

@@ -117,12 +117,13 @@ print('OK')
         if r.stdout.strip():
             print("        " + r.stdout.strip())
 
-        # ----- install_claude_hook.py -----
-        print("\n[install_claude_hook.py]")
+        # ----- install_hook_based_agent.py --runtime claude -----
+        print("\n[install_hook_based_agent.py --runtime claude]")
 
         # T5: first install
         r = run([
-            PYTHON, str(HOOKS / "install_claude_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "claude",
             "--settings-file", str(claude_settings),
             "--no-strict-verify",  # skip verifier subprocess for this test
         ])
@@ -134,7 +135,8 @@ print('OK')
 
         # T6: re-install (dedup)
         r = run([
-            PYTHON, str(HOOKS / "install_claude_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "claude",
             "--settings-file", str(claude_settings),
             "--no-strict-verify",
         ])
@@ -150,7 +152,8 @@ print('OK')
         corrupt.write_text("{ this is not valid json")
         baks_before = list(claude_dir.glob("settings-corrupt.json.bak-*"))
         r = run([
-            PYTHON, str(HOOKS / "install_claude_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "claude",
             "--settings-file", str(corrupt),
             "--no-strict-verify",
         ])
@@ -176,7 +179,8 @@ print('OK')
                               encoding="utf-8")
         # First install -> creates backup with today's UTC date
         r1 = run([
-            PYTHON, str(HOOKS / "install_claude_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "claude",
             "--settings-file", str(col_target),
             "--no-strict-verify",
         ])
@@ -189,7 +193,8 @@ print('OK')
             "collision: first install created a .bak-* sibling")
         # Re-install without --force-backup -> collision
         r2 = run([
-            PYTHON, str(HOOKS / "install_claude_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "claude",
             "--settings-file", str(col_target),
             "--no-strict-verify",
         ])
@@ -203,11 +208,12 @@ print('OK')
         assert_true("backup_path" in j2,
                     "collision response carries backup_path for user decision")
 
-        # ----- install_codex_hook.py -----
-        print("\n[install_codex_hook.py]")
+        # ----- install_hook_based_agent.py --runtime codex -----
+        print("\n[install_hook_based_agent.py --runtime codex]")
         # T9: first install
         r = run([
-            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "codex",
             "--hooks-file", str(codex_hooks),
             "--config-file", str(codex_config),
             "--no-strict-verify",
@@ -533,7 +539,8 @@ print('OK')
         hooks1.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
                           encoding="utf-8")
         r = run([
-            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "codex",
             "--hooks-file", str(hooks1),
             "--config-file", str(cfg1),
             "--no-strict-verify",
@@ -566,7 +573,8 @@ print('OK')
         hooks2.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
                           encoding="utf-8")
         r = run([
-            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "codex",
             "--hooks-file", str(hooks2),
             "--config-file", str(cfg2),
             "--no-strict-verify",
@@ -597,7 +605,8 @@ print('OK')
         hooks3.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
                           encoding="utf-8")
         r = run([
-            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "codex",
             "--hooks-file", str(hooks3),
             "--config-file", str(cfg3),
             "--no-strict-verify",
@@ -627,7 +636,8 @@ print('OK')
             }
         }), encoding="utf-8")
         r = run([
-            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "codex",
             "--hooks-file", str(hooks4),
             "--config-file", str(cfg4),
             "--no-strict-verify",
@@ -660,7 +670,8 @@ print('OK')
                           encoding="utf-8")
         baks_before = list(pr_d_dir.glob("corrupt.toml.bak-*"))
         r = run([
-            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "codex",
             "--hooks-file", str(hooks5),
             "--config-file", str(cfg5),
             "--no-strict-verify",
@@ -684,7 +695,8 @@ print('OK')
         hooks6.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
                           encoding="utf-8")
         r1 = run([
-            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "codex",
             "--hooks-file", str(hooks6),
             "--config-file", str(cfg6),
             "--no-strict-verify",
@@ -692,7 +704,8 @@ print('OK')
         assert_eq(r1.returncode, 0, "PR-D collision: first install ok")
         # Second install (hooks=false again → write needed → collision)
         r2 = run([
-            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "codex",
             "--hooks-file", str(hooks6),
             "--config-file", str(cfg6),
             "--no-strict-verify",
@@ -704,6 +717,79 @@ print('OK')
             j2 = {}
         assert_eq(j2.get("error"), "backup_collision",
                   "PR-D collision: error=backup_collision")
+
+        # ----- unified installer new branches -----
+        print("\n[install_hook_based_agent.py --runtime zcode]")
+
+        # T-UNI-1: ZCode first install creates a process entry under
+        # hooks.events.UserPromptSubmit[] with type=process and the
+        # reminder script + --format zcode in args.
+        zcode_cfg = root_p / "uni-zcode" / "config.json"
+        zcode_cfg.parent.mkdir(parents=True, exist_ok=True)
+        r = run([
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(zcode_cfg),
+            "--no-strict-verify",
+        ])
+        assert_eq(r.returncode, 0, "UNI: zcode first install")
+        zdata = json.loads(zcode_cfg.read_text(encoding="utf-8-sig"))
+        ups = zdata["hooks"]["events"]["UserPromptSubmit"]
+        # Exactly one process entry (our own); other tools untouched.
+        process_entries = [e for e in ups if e.get("type") == "process"]
+        assert_eq(len(process_entries), 1,
+                  "UNI: zcode wrote exactly 1 process entry")
+        entry = process_entries[0]
+        assert_eq(entry.get("command"), str(Path(sys.executable).resolve()),
+                  "UNI: zcode entry command is resolved Python")
+        assert_true(isinstance(entry.get("args"), list)
+                    and entry["args"][0].endswith("light_rip_reminder.py")
+                    and entry["args"][1:3] == ["--format", "zcode"],
+                    "UNI: zcode entry args point at reminder --format zcode")
+        assert_eq(entry.get("timeoutMs"), 5000,
+                  "UNI: zcode entry timeoutMs = 5000")
+        assert_true("matcher" not in entry,
+                    "UNI: zcode entry has NO matcher field (Zod min(1) rule)")
+        assert_true(zdata["hooks"].get("enabled") is True,
+                    "UNI: zcode hooks.enabled set")
+        assert_true(isinstance(zdata["hooks"].get("timeoutMs"), int),
+                    "UNI: zcode hooks.timeoutMs set")
+
+        # T-UNI-2: idempotent re-install is dedup-safe — entry count
+        # stays at 1 even with our prior entry already present.
+        r = run([
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(zcode_cfg),
+            "--no-strict-verify",
+        ])
+        assert_eq(r.returncode, 0, "UNI: zcode re-install")
+        zdata2 = json.loads(zcode_cfg.read_text(encoding="utf-8-sig"))
+        ups2 = zdata2["hooks"]["events"]["UserPromptSubmit"]
+        process_entries2 = [e for e in ups2 if e.get("type") == "process"]
+        assert_eq(len(process_entries2), 1,
+                  "UNI: zcode re-install still exactly 1 process entry (dedup)")
+
+        # T-UNI-3: cross-runtime flag rejection. --no-enable-feature is
+        # Codex-only; passing it under --runtime claude must abort with
+        # error=flag_not_applicable_for_runtime and exit 2.
+        r = run([
+            PYTHON, str(HOOKS / "install_hook_based_agent.py"),
+            "--runtime", "claude",
+            "--settings-file", str(claude_settings),
+            "--no-enable-feature",
+            "--no-strict-verify",
+        ])
+        assert_eq(r.returncode, 2,
+                  "UNI: --runtime claude --no-enable-feature returns 2")
+        try:
+            j_flag = json.loads(r.stderr.strip().splitlines()[-1])
+        except Exception:
+            j_flag = {}
+        assert_eq(j_flag.get("error"), "flag_not_applicable_for_runtime",
+                  "UNI: cross-runtime flag rejection reports correct error")
+        assert_eq(j_flag.get("flag"), "--no-enable-feature",
+                  "UNI: cross-runtime flag rejection names the offending flag")
 
         print("\nALL TESTS PASSED")
 

@@ -66,9 +66,9 @@ from installer_common import NAMESPACE, is_our_namespace  # noqa: E402
 # >= 3.11, tomli is the backport. If neither is available we fall
 # back to a regex line scan that mirrors the (now-removed) install
 # path so verification still works on systems with neither library;
-# the install_codex_hook installer itself now requires tomli_w to
-# write config.toml safely, so a missing tomli_w only blocks install,
-# not verify.
+# the install_hook_based_agent.py installer (Codex branch) itself now
+# requires tomli_w to write config.toml safely, so a missing tomli_w
+# only blocks install, not verify.
 try:
     import tomllib  # type: ignore[import-not-found]
 except ImportError:
@@ -316,8 +316,9 @@ def _codex_feature_enabled(config_path: Path) -> bool | str:
         if isinstance(value, str) and value.strip().lower() == "true":
             return True
         return False
-    # Fallback: regex-based line scan mirroring install_codex_hook.py
-    # when neither tomllib nor tomli is available.
+    # Fallback: regex-based line scan mirroring the
+    # install_hook_based_agent.py Codex branch when neither tomllib
+    # nor tomli is available.
     try:
         text = config_path.read_text(encoding="utf-8-sig")
     except OSError as exc:
@@ -594,8 +595,8 @@ def render_human(script_checks: list[dict], runtime_checks: dict,
             lines.append(f"         config.toml — {ct.get('detail', '')}")
     if not any_probed:
         lines.append(f"  (no runtime config files found at default locations — "
-                     "install with install_claude_hook.py / "
-                     "install_codex_hook.py, or follow the ZCode worked "
+                     "install with install_hook_based_agent.py "
+                     "(--runtime claude|codex|zcode), or follow the ZCode worked "
                      "example printed by install_general_agent_hook.py)")
     return "\n".join(lines) + "\n"
 

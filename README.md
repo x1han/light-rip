@@ -23,7 +23,7 @@ P0/P1 findings from any reviewer or verifier pass block completion. The main ses
 
 ## Dependencies
 
-The dedicated Codex installer (`hooks/install_codex_hook.py`) needs a TOML library at runtime to read and rewrite `~/.codex/config.toml` safely:
+The Codex branch of the unified installer (`hooks/install_hook_based_agent.py --runtime codex`) needs a TOML library at runtime to read and rewrite `~/.codex/config.toml` safely:
 
   - `tomllib` — stdlib on Python 3.11+.
   - `tomli` — backport for Python 3.10 and earlier.
@@ -46,7 +46,7 @@ Claude Code documentation and community examples use `$HOME/.claude/skills` or `
 mkdir -p "$HOME/.claude/skills"
 git clone https://github.com/x1han/light-rip "$HOME/.claude/skills/light-rip"
 cd "$HOME/.claude/skills/light-rip"
-python hooks/install_claude_hook.py
+python hooks/install_hook_based_agent.py --runtime claude
 ```
 
 ### Codex
@@ -58,7 +58,7 @@ CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 mkdir -p "$CODEX_HOME/skills"
 git clone https://github.com/x1han/light-rip "$CODEX_HOME/skills/light-rip"
 cd "$CODEX_HOME/skills/light-rip"
-python hooks/install_codex_hook.py
+python hooks/install_hook_based_agent.py --runtime codex
 ```
 
 ### Other agents (OpenCode / ZCode / anything else)
@@ -105,10 +105,9 @@ prove any runtime will actually invoke the hook on real prompts —
 that requires observing one real prompt and confirming the reminder
 content shows up in the agent's context.
 
-The dedicated Claude Code and Codex installers call `verify_install.py`
-automatically at the end, so the same two checks run as part of
-`python hooks/install_codex_hook.py` and
-`python hooks/install_claude_hook.py`.
+The unified installer calls `verify_install.py` automatically at the
+end, so the same two checks run as part of
+`python hooks/install_hook_based_agent.py --runtime claude|codex|zcode`.
 
 Exit codes:
 
@@ -150,8 +149,8 @@ the reminder script.
 
 #### Backups and atomic writes
 
-The dedicated installers (`install_claude_hook.py`,
-`install_codex_hook.py`) back up any config file they touch to
+The unified installer (`install_hook_based_agent.py --runtime claude|codex|zcode`)
+backs up any config file it touches to
 `<path>.bak-YYYY-MM-DD` (UTC) before writing. A same-day backup
 collision aborts with `error=backup_collision`; pass
 `--force-backup` to overwrite or rename the existing backup. The
@@ -216,7 +215,6 @@ re-run the installer that matches your agent (see Installation).
 - `reminder.md` — the context injected by the hook. Runtime-neutral.
 - `hooks/light_rip_reminder.py` — the shared hook command. The default `--format harness` emits a `hookSpecificOutput.additionalContext` envelope that most runtimes accept; an alternative format is also shipped for runtimes that rewrite the prompt instead.
 - `hooks/installer_common.py` — shared helpers for the dedicated installers: date-stamped backups (`<path>.bak-YYYY-MM-DD` UTC, abort-on-collision), atomic writes (temp + fsync + rename), safe JSON load, and dedup-all upsert.
-- `hooks/install_codex_hook.py` — Codex-specific installer (auto-writes `~/.codex/hooks.json` and enables `[features] hooks = true` in `~/.codex/config.toml` via `tomllib` + `tomli_w`; requires `pip install tomli-w`).
-- `hooks/install_claude_hook.py` — Claude Code-specific installer (auto-writes `~/.claude/settings.json`).
+- `hooks/install_hook_based_agent.py` — unified installer for hook-based agent runtimes. Pick one with `--runtime claude|codex|zcode` (writes `~/.claude/settings.json`, `~/.codex/hooks.json` + `~/.codex/config.toml`, or `~/.zcode/cli/config.json` respectively). Replaces the per-runtime scripts that shipped before.
 - `hooks/install_general_agent_hook.py` — generic installer for any other agent runtime. Prints an install prompt; does not write files itself.
 - `hooks/verify_install.py` — verifies that an install landed correctly. Actively checks Claude Code, Codex, and ZCode; other runtimes install via the general prompt and are not actively verified here.

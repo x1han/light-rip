@@ -189,6 +189,73 @@ file (the installer creates one automatically — keep it).
 On Python 3.11+ install with `pip install tomli-w`. On Python
 3.10 and earlier also install `tomli`.
 
+#### Unified hook-based installer
+
+The three pre-unification scripts (`install_claude_hook.py`,
+`install_codex_hook.py`, plus the ZCode worked example that lived
+inside `install_general_agent_hook.py`) are replaced by a single
+`install_hook_based_agent.py`. Pick one runtime with `--runtime`:
+
+  - `claude` — writes `~/.claude/settings.json` (legacy JSON hooks
+    schema; `metadata.hook_namespace` based dedup).
+  - `codex` — writes `~/.codex/hooks.json` AND enables
+    `[features] hooks = true` in `~/.codex/config.toml` (TOML
+    via `tomllib` + `tomli_w`; still requires `pip install
+    tomli-w`).
+  - `zcode` — writes `~/.zcode/cli/config.json` as a `process`-
+    type entry under `hooks.events.UserPromptSubmit[]`. **First-
+    class installer for ZCode** (previously only a worked example
+    in the general installer's prompt).
+
+**BREAKING**: `install_claude_hook.py` and `install_codex_hook.py`
+are removed. Any shell scripts, CI pipelines, or documentation
+that referenced those filenames must be updated to use
+`install_hook_based_agent.py --runtime claude` or `--runtime codex`.
+
+CLI surface changes:
+
+  - New required `--runtime {claude,codex,zcode}`.
+  - Path flags use sentinel `None` defaults and are filled in by
+    `_validate_args` based on runtime; passing a path flag under
+    the wrong runtime now aborts with
+    `error=flag_not_applicable_for_runtime` and exit 2 rather
+    than being silently ignored.
+  - Shared error envelope helper `_emit_error` centralises the
+    `print(json.dumps({...}, file=sys.stderr)); return 2` pattern
+    that appeared 14+ times across the old installers; wire
+    shape unchanged.
+  - Three branch functions (`install_claude`, `install_codex`,
+    `install_zcode`) are exposed as top-level callables so future
+    tests can call them in-process without spawning subprocess.
+  - The `_run_verifier` helper centralises the runtime-agnostic
+    verifier invocation; each branch passes only its
+    runtime-specific path flag via `verify_argv_extra`.
+
+ZCode branch specifics:
+
+  - Dedup predicate `_is_our_zcode_entry` matches by command
+    basename + first arg basename (same criterion as
+    `verify_install.check_zcode`), since ZCode's process-hook
+    schema has no `metadata.hook_namespace` field.
+  - New entry MUST NOT include a `matcher` field — Zod's
+    `min(1)` schema rejects empty strings and silently drops
+    the whole hooks block. Omit the field entirely to match all
+    prompts.
+  - `hooks.enabled`, `hooks.timeoutMs`, `hooks.maxOutputBytes`
+    are set with `setdefault` (idempotent: do NOT clobber a
+    deliberate `false`).
+  - The ZCode worked example that lived inside
+    `install_general_agent_hook.py:167-229` stays as
+    documentation; users with ZCode now have a one-line
+    installer and don't need to hand-roll the worked example.
+
+The verifier (`verify_install.py`) is unchanged — it already
+accepted `--runtime zcode --zcode-config`. The general installer
+`install_general_agent_hook.py` (prompt dispatcher for any
+runtime the unified installer doesn't cover) is also unchanged
+structurally; its "Dedicated installers" block was updated to
+mention the three `--runtime` choices.
+
 ### Docs
 
 - `CHANGELOG.md` (this file) added.

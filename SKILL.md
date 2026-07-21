@@ -11,8 +11,9 @@ This repository is an agent skill package, not a software application. To instal
 
 Installation is not complete until the reminder hook is mounted. If you install or update this skill, you MUST run the appropriate hook installer from inside the installed `light-rip` skill directory before telling the user installation is done:
 
-- Claude Code: `python hooks/install_claude_hook.py`
-- Codex: `python hooks/install_codex_hook.py`
+- Claude Code: `python hooks/install_hook_based_agent.py --runtime claude`
+- Codex: `python hooks/install_hook_based_agent.py --runtime codex`
+- ZCode: `python hooks/install_hook_based_agent.py --runtime zcode`
 - Any other agent: `python hooks/install_general_agent_hook.py`. This prints a structured install prompt that the receiving agent executes by inspecting its own runtime and installing by analogy to the worked examples (OpenCode for the instructions path, ZCode for the hook path). The script itself does not write files.
 
 After the install (whichever path), confirm with `python hooks/verify_install.py`. The dedicated Claude Code and Codex installers run this verifier automatically at the end of their own run.
@@ -289,7 +290,7 @@ Claude Code hook setup:
 
 ```bash
 cd ~/.claude/skills/light-rip
-python hooks/install_claude_hook.py
+python hooks/install_hook_based_agent.py --runtime claude
 ```
 
 This updates `~/.claude/settings.json` by adding a `UserPromptSubmit` command hook.
@@ -298,17 +299,26 @@ Codex hook setup:
 
 ```bash
 cd "$CODEX_HOME/skills/light-rip"
-python hooks/install_codex_hook.py
+python hooks/install_hook_based_agent.py --runtime codex
 ```
 
 This updates `$CODEX_HOME/hooks.json` and ensures `[features] hooks = true` in `$CODEX_HOME/config.toml`.
+
+ZCode hook setup:
+
+```bash
+cd /path/to/light-rip
+python hooks/install_hook_based_agent.py --runtime zcode
+```
+
+This updates `~/.zcode/cli/config.json` by adding a `process`-type entry under `hooks.events.UserPromptSubmit[]`.
 
 Claude Code agents installing this skill from GitHub should do both steps:
 
 ```bash
 # after copying the repo contents to ~/.claude/skills/light-rip
 cd ~/.claude/skills/light-rip
-python hooks/install_claude_hook.py
+python hooks/install_hook_based_agent.py --runtime claude
 ```
 
 Codex agents installing this skill from GitHub should do both steps:
@@ -316,7 +326,7 @@ Codex agents installing this skill from GitHub should do both steps:
 ```bash
 # after copying the repo contents to $CODEX_HOME/skills/light-rip
 cd "$CODEX_HOME/skills/light-rip"
-python hooks/install_codex_hook.py
+python hooks/install_hook_based_agent.py --runtime codex
 ```
 
 ## Common Mistakes
