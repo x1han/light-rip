@@ -123,6 +123,72 @@ Five issues fixed:
      `install_zcode_hook.py`.** ZCode installs use the general
      prompt's worked example.
 
+#### PR-C: PEP 394 / PEP 397 Python-launcher predicate
+
+The ZCode detector in `verify_install.py` no longer treats every
+`.exe` filename as a Python interpreter. The new predicate is a
+strict regex anchored on the full filename (`cmd_path.name`, not
+`.stem`) that matches the blessed names from PEP 394 (`python`,
+`python2`, `python3`, `python3.12`) and PEP 397 (`py`, `py3`) with
+or without a `.exe` suffix. It explicitly rejects:
+
+  - `pythonw`, `pythonw.exe` — GUI launcher, does not allocate a
+    console.
+  - `python_d`, `pythonw_d` — debug builds.
+  - `mypython`, `python3.12-config`, `python3.12-config.exe`,
+    `pyfoo`, `python.exe.bak` — names that happen to start with
+    `python` or `py` but are not interpreters.
+
+Using `.name` (not `.stem`) is essential: on Windows,
+`Path("python3.12-config.exe").stem` reduces to `python3.12`, which
+would falsely match the dev tool as an interpreter. Anchoring on
+the full filename closes that hole.
+
+#### PR-D: Codex `config.toml` via `tomllib` / `tomli_w`
+
+`install_codex_hook.py` switched from regex line surgery to a TOML
+library for `~/.codex/config.toml`:
+
+  - **`check_hooks_feature`** reads the file and decides whether a
+    write is needed. Returns `(needs_write, error)` so the caller
+    can react separately to "already correct" vs "corrupt".
+  - **`write_hooks_feature`** reads, mutates (`features.hooks =
+    True`), and writes via `tomli_w`. Caller must have already
+    backed up.
+  - **`ConfigTomlError`** is raised when the file is structurally
+    wrong (parse error, non-dict root) or when `tomli_w` is
+    missing. Mapped to `error=invalid_runtime_config` with exit 2.
+
+The install flow now applies the same **parse-before-backup**
+invariant to `config.toml` as to `hooks.json`: the source is
+parsed first, and only backed up once a write is actually needed.
+Re-installs where `[features] hooks` is already truthy make no
+backup and no rewrite — the file stays byte-equal so its comments
+and formatting are preserved.
+
+The verifier (`verify_install.py`) was updated in parallel:
+
+  - `_codex_feature_enabled` now accepts TOML bool `True` OR the
+    case-insensitive string `"true"`, matching Codex's own
+    acceptance rules. The earlier `bool(features.get("hooks"))`
+    check was wrong: `bool("false")` is True (non-empty string),
+    which would have reported a disabled feature as enabled.
+  - The regex fallback (when neither `tomllib` nor `tomli` is
+    installed) strips a single layer of surrounding quotes so it
+    agrees with the TOML branch on `hooks = "true"`.
+
+**Known regression**: when `install_codex_hook.py` actually
+rewrites `config.toml`, `tomli_w.dump` does not preserve original
+comments or formatting. The installer reaches this code path only
+when `[features] hooks` is not already truthy; idempotent
+re-installs are no-ops. If a user has hand-curated comments in
+`config.toml`, take a backup before the first install on that
+file (the installer creates one automatically — keep it).
+
+**New dependency**: `tomli_w` is required for the Codex installer.
+On Python 3.11+ install with `pip install tomli-w`. On Python
+3.10 and earlier also install `tomli`.
+
 ### Docs
 
 - `CHANGELOG.md` (this file) added.
@@ -134,3 +200,9 @@ Five issues fixed:
 - `hooks/install_general_agent_hook.py` ZCode worked example now
   uses `--format zcode` and includes an explicit caveat that the
   adapter is empirically untested.
+- `README.md` adds a "Dependencies" section documenting the
+  `tomli_w` (and `tomli` on Python ≤ 3.10) requirement for the
+  Codex installer, extends "Backups and atomic writes" with the
+  parse-before-backup + idempotent-reinstall invariant on
+  `config.toml`, and adds a "ZCode detector" subsection explaining
+  the PEP 394/397 launcher predicate.

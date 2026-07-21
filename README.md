@@ -21,6 +21,19 @@ Risk upgrades the tier: risky tiny becomes medium; risky medium becomes large.
 
 P0/P1 findings from any reviewer or verifier pass block completion. The main session fixes them; for Large, the main session may route verifier fixes back through the implementer for fix + self-verify + verifier re-run. Relevant verification runs again, and nontrivial P1 fixes get a short re-review.
 
+## Dependencies
+
+The dedicated Codex installer (`hooks/install_codex_hook.py`) needs a TOML library at runtime to read and rewrite `~/.codex/config.toml` safely:
+
+  - `tomllib` — stdlib on Python 3.11+.
+  - `tomli` — backport for Python 3.10 and earlier.
+  - `tomli_w` — required for **writing**. Not in stdlib on any Python version.
+
+On Python 3.11+ install only `tomli_w`: `pip install tomli-w`.
+On Python 3.10 and earlier install both: `pip install tomli tomli-w`.
+
+If `tomli_w` is missing, the installer aborts before touching any backup with `error=invalid_runtime_config` and the hint `install tomli_w with \`pip install tomli-w\``.
+
 ## Installation
 
 Do not install it as an app, service, Python package, or normal project checkout. Install it by placing the `light-rip` folder in your agent's skills directory, then mount the required `UserPromptSubmit` reminder hook — the skill folder alone is incomplete without the hook. After installing or updating, restart the agent runtime so the hook registers.
@@ -155,6 +168,42 @@ denied, locked file, …) surface as `error=permission_or_io_error`,
 distinct from `backup_collision` so the user can tell "you have a
 choice" from "I literally cannot write here".
 
+The same parse-before-backup invariant applies to Codex's
+`config.toml`: the installer reads and parses the file first, and
+only backs it up once it knows the source is good. Re-running the
+installer on an already-correct `config.toml` (where `[features]
+hooks` is already truthy per Codex's own acceptance rules — TOML
+bool `true` or the case-insensitive string `"true"`) is a no-op:
+the file is left byte-equal so its comments and formatting survive.
+
+When the installer does need to rewrite `config.toml`, the rewrite
+goes through `tomli_w`, which does not preserve original comments
+or formatting. The single backup at `<config.toml>.bak-YYYY-MM-DD`
+is your recovery path if the rewrite dropped something you wanted
+back. Idempotent re-installs never reach the rewrite path.
+
+#### ZCode detector: strict Python-launcher predicate
+
+`verify_install.py`'s ZCode branch matches the runtime hook command
+against a strict regex anchored on the **full filename**
+(`cmd_path.name`, not `.stem`) of PEP 394 + PEP 397 blessed names:
+
+  - Accepts: `python`, `python.exe`, `python2`, `python2.exe`,
+    `python3`, `python3.12`, `python3.12.exe`, `py`, `py.exe`,
+    `py3`, `py3.exe`.
+  - Rejects: `pythonw`, `pythonw.exe` (GUI launcher, no console);
+    `python_d`, `pythonw_d` (debug builds); `mypython`,
+    `python3.12-config`, `python3.12-config.exe`, `pyfoo`,
+    `python.exe.bak` (anything that starts with `python` or `py`
+    but is not a real interpreter).
+
+The earlier predicate (`cmd.endswith(".exe") or "python" in cmd`)
+matched every Windows process path. The full-filename anchor is
+also what rejects `python3.12-config.exe`: on Windows,
+`Path("python3.12-config.exe").stem` reduces to `python3.12`, so
+checking `.stem` would falsely accept the dev tool as an
+interpreter.
+
 ## Updating
 
 `cd` into the installed `light-rip` folder, run `git pull`, then
@@ -167,7 +216,7 @@ re-run the installer that matches your agent (see Installation).
 - `reminder.md` — the context injected by the hook. Runtime-neutral.
 - `hooks/light_rip_reminder.py` — the shared hook command. The default `--format harness` emits a `hookSpecificOutput.additionalContext` envelope that most runtimes accept; an alternative format is also shipped for runtimes that rewrite the prompt instead.
 - `hooks/installer_common.py` — shared helpers for the dedicated installers: date-stamped backups (`<path>.bak-YYYY-MM-DD` UTC, abort-on-collision), atomic writes (temp + fsync + rename), safe JSON load, and dedup-all upsert.
-- `hooks/install_codex_hook.py` — Codex-specific installer (auto-writes `~/.codex/hooks.json` and enables `[features] hooks = true` in `~/.codex/config.toml`).
+- `hooks/install_codex_hook.py` — Codex-specific installer (auto-writes `~/.codex/hooks.json` and enables `[features] hooks = true` in `~/.codex/config.toml` via `tomllib` + `tomli_w`; requires `pip install tomli-w`).
 - `hooks/install_claude_hook.py` — Claude Code-specific installer (auto-writes `~/.claude/settings.json`).
 - `hooks/install_general_agent_hook.py` — generic installer for any other agent runtime. Prints an install prompt; does not write files itself.
 - `hooks/verify_install.py` — verifies that an install landed correctly. Actively checks Claude Code, Codex, and ZCode; other runtimes install via the general prompt and are not actively verified here.

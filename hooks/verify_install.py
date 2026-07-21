@@ -49,6 +49,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -61,9 +62,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from installer_common import NAMESPACE, is_our_namespace  # noqa: E402
 
-# TOML fallback for Python < 3.11. tomllib is stdlib from 3.11 onward;
-# tomli is the backport; the regex fallback matches install_codex_hook.py
-# and works even without any TOML library installed.
+# TOML library for config.toml reading. tomllib is stdlib on Python
+# >= 3.11, tomli is the backport. If neither is available we fall
+# back to a regex line scan that mirrors the (now-removed) install
+# path so verification still works on systems with neither library;
+# the install_codex_hook installer itself now requires tomli_w to
+# write config.toml safely, so a missing tomli_w only blocks install,
+# not verify.
 try:
     import tomllib  # type: ignore[import-not-found]
 except ImportError:
@@ -75,6 +80,20 @@ except ImportError:
 
 REMINDER_MARKER = "Evidence Before Claims"
 REMINDER_SCRIPT_NAME = "light_rip_reminder.py"
+
+# PEP 394 (POSIX blessed names) + PEP 397 (Windows Python launcher).
+# Matches `python`, `python2`, `python3`, `python3.12`, `py`, `py3`,
+# with or without a `.exe` suffix. Explicitly rejects `pythonw` (GUI
+# launcher — doesn't allocate a console, may not run console scripts
+# reliably), `python_d` / `pythonw_d` (debug builds), `mypython`,
+# `python3.12-config`, `py-config`, and arbitrary names. Anchored on
+# the full filename via `cmd_path.name` so `python3.12-config.exe`
+# is not silently reduced to stem `python3.12` and accepted.
+# Case-insensitive because Windows filenames are case-insensitive.
+_PY_LAUNCHER = re.compile(
+    r"^(?:python(?:2|3(?:\.\d+)?)?|py\d*)(?:\.exe)?$",
+    re.IGNORECASE,
+)
 
 
 # ---------- path resolution ----------
@@ -288,8 +307,17 @@ def _codex_feature_enabled(config_path: Path) -> bool | str:
         features = data.get("features") if isinstance(data, dict) else None
         if not isinstance(features, dict):
             return False
-        return bool(features.get("hooks"))
-    # Fallback: regex-based line scan mirroring install_codex_hook.py.
+        value = features.get("hooks")
+        # Match Codex's own acceptance: TOML bool ``true`` OR the case-
+        # insensitive string ``"true"``. Plain ``bool(...)`` is wrong
+        # here because ``bool("false")`` is True (non-empty string).
+        if value is True:
+            return True
+        if isinstance(value, str) and value.strip().lower() == "true":
+            return True
+        return False
+    # Fallback: regex-based line scan mirroring install_codex_hook.py
+    # when neither tomllib nor tomli is available.
     try:
         text = config_path.read_text(encoding="utf-8-sig")
     except OSError as exc:
@@ -302,6 +330,12 @@ def _codex_feature_enabled(config_path: Path) -> bool | str:
             continue
         if in_features and stripped.startswith("hooks"):
             rhs = stripped.split("=", 1)[-1].strip().split("#", 1)[0].strip().lower()
+            # Strip a single layer of surrounding quotes so the
+            # fallback agrees with the TOML branch on `hooks = "true"`.
+            if (rhs.startswith('"') and rhs.endswith('"')) or (
+                rhs.startswith("'") and rhs.endswith("'")
+            ):
+                rhs = rhs[1:-1]
             return rhs == "true"
     return False
 
@@ -420,17 +454,21 @@ def check_zcode(config_path: Path) -> dict:
             # The earlier predicate (`cmd.endswith(".exe") or "python"
             # in cmd`) accepted any tool whose path ended in `.exe`
             # (e.g. `node.exe`, `powershell.exe`) — every Windows
-            # process path matches. We now require the basename to
-            # start with "python" (e.g. python.exe, python3.12.exe,
-            # /usr/bin/python3) and explicitly reject `pythonw` (the
-            # GUI launcher, which does not run console scripts).
+            # process path matches. We now anchor on the PEP 394 +
+            # PEP 397 blessed names via `_PY_LAUNCHER` (defined at
+            # module top), which accepts `python`, `python2`,
+            # `python3`, `python3.12`, `py`, `py3`, each with or
+            # without a `.exe` suffix, and explicitly rejects
+            # `pythonw`, `python_d`, `pythonw_d`, `mypython`,
+            # `python3.12-config`, `py-config`, and arbitrary names.
+            #
+            # Use `cmd_path.name` (not `cmd_path.stem`) so the regex
+            # sees the full filename including `.exe`. Otherwise
+            # `Path("python3.12-config.exe").stem == "python3.12"` and
+            # the dev tool would be falsely accepted as an interpreter.
             cmd_path = Path(cmd) if cmd else Path("")
-            cmd_basename = cmd_path.name.lower()
-            cmd_stem = cmd_path.stem.lower()
-            cmd_is_python = (
-                cmd_stem.startswith("python")
-                and not cmd_stem.startswith("pythonw")
-            )
+            cmd_name = cmd_path.name
+            cmd_is_python = bool(_PY_LAUNCHER.match(cmd_name))
             if cmd_is_python and REMINDER_SCRIPT_NAME in arg_blob:
                 count += 1
     return {

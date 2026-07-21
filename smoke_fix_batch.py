@@ -390,6 +390,321 @@ print('OK')
         assert_true("corrupt" in detail,
                     "zcode corrupt branch mentions 'corrupt'")
 
+        # ----- PR-C: PEP 394/397 launcher predicate -----
+        print("\n[PR-C: ZCode detector Python-launcher predicate]")
+        pr_c_dir = root_p / "pr-c"
+        pr_c_dir.mkdir(parents=True, exist_ok=True)
+        py_exe_path = Path(sys.executable)
+        reminder_path = HOOKS / "light_rip_reminder.py"
+        reminder_path_str = str(reminder_path)
+
+        def make_zcode_config(name: str, command: str) -> Path:
+            cfg = pr_c_dir / name
+            cfg.write_text(json.dumps({
+                "hooks": {
+                    "enabled": True,
+                    "events": {
+                        "UserPromptSubmit": [{
+                            "hooks": [{
+                                "type": "process",
+                                "command": command,
+                                "args": [reminder_path_str,
+                                         "--format", "harness"],
+                            }]
+                        }]
+                    }
+                }
+            }))
+            return cfg
+
+        # Positive: bare `py` (Windows launcher name)
+        cfg_py = make_zcode_config("py.json", "py")
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(cfg_py),
+            "--json",
+        ])
+        assert_eq(r.returncode, 0, "verify_install zcode (py launcher) returns 0")
+        rc = json.loads(r.stdout)["runtime_checks"]["zcode"]
+        assert_eq(rc.get("installed"), True,
+                  "verify_install zcode (py) installed == True")
+
+        # Positive: py.exe
+        cfg_py_exe = make_zcode_config("py-exe.json", "py.exe")
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(cfg_py_exe),
+            "--json",
+        ])
+        assert_eq(r.returncode, 0, "verify_install zcode (py.exe) returns 0")
+
+        # Positive: full Windows path with py.exe
+        cfg_py_path = make_zcode_config(
+            "py-path.json", r"C:\Python312\py.exe"
+        )
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(cfg_py_path),
+            "--json",
+        ])
+        assert_eq(r.returncode, 0, "verify_install zcode (py.exe path) returns 0")
+
+        # Positive: python3.12.exe (versioned interpreter)
+        cfg_py312 = make_zcode_config(
+            "python312.json", r"C:\Python312\python3.12.exe"
+        )
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(cfg_py312),
+            "--json",
+        ])
+        assert_eq(r.returncode, 0, "verify_install zcode (python3.12.exe) returns 0")
+
+        # Negative: pythonw.exe (GUI launcher, should NOT match)
+        cfg_pyw = make_zcode_config("pythonw.json", r"C:\Python312\pythonw.exe")
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(cfg_pyw),
+            "--json",
+        ])
+        assert_eq(r.returncode, 1, "verify_install zcode (pythonw.exe) returns 1")
+        rc = json.loads(r.stdout)["runtime_checks"]["zcode"]
+        assert_eq(rc.get("match_count"), 0,
+                  "verify_install zcode (pythonw.exe) match_count == 0")
+
+        # Negative: mypython.exe (false positive under old predicate)
+        cfg_mypy = make_zcode_config("mypython.json", "mypython.exe")
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(cfg_mypy),
+            "--json",
+        ])
+        assert_eq(r.returncode, 1, "verify_install zcode (mypython.exe) returns 1")
+        rc = json.loads(r.stdout)["runtime_checks"]["zcode"]
+        assert_eq(rc.get("match_count"), 0,
+                  "verify_install zcode (mypython.exe) match_count == 0")
+
+        # Negative: python3.12-config (dev tool, not interpreter)
+        cfg_pycfg = make_zcode_config("python312-config.json",
+                                       "python3.12-config")
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(cfg_pycfg),
+            "--json",
+        ])
+        assert_eq(r.returncode, 1, "verify_install zcode (python3.12-config) returns 1")
+
+        # Negative: python_d.exe (debug build)
+        cfg_pyd = make_zcode_config("python_d.json", "python_d.exe")
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "zcode",
+            "--zcode-config", str(cfg_pyd),
+            "--json",
+        ])
+        assert_eq(r.returncode, 1, "verify_install zcode (python_d.exe) returns 1")
+
+        # ----- PR-D: config.toml idempotent + preservation -----
+        print("\n[PR-D: Codex config.toml via tomllib/tomli_w]")
+
+        pr_d_dir = root_p / "pr-d"
+        pr_d_dir.mkdir(parents=True, exist_ok=True)
+
+        # T-PR-D-1: pre-existing config.toml with hooks=true and
+        # comments → re-install must NOT rewrite → byte-equal.
+        cfg1 = pr_d_dir / "idempotent.toml"
+        cfg1_original = (
+            "# my custom settings\n"
+            "[features]\n"
+            "hooks = true  # already enabled\n"
+            "[mcp]\n"
+            'servers = ["foo"]\n'
+        )
+        cfg1.write_text(cfg1_original, encoding="utf-8")
+        # Need an existing hooks.json alongside for the installer.
+        hooks1 = pr_d_dir / "idempotent-hooks.json"
+        hooks1.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
+                          encoding="utf-8")
+        r = run([
+            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            "--hooks-file", str(hooks1),
+            "--config-file", str(cfg1),
+            "--no-strict-verify",
+        ])
+        assert_eq(r.returncode, 0, "PR-D idempotent re-install ok")
+        # File must be byte-equal after re-install (no rewrite when
+        # hooks already true).
+        assert_eq(cfg1.read_text(encoding="utf-8"), cfg1_original,
+                  "PR-D: hooks=true re-install is byte-equal (no comment loss)")
+        # No backup should have been created either.
+        baks = list(pr_d_dir.glob("idempotent.toml.bak-*"))
+        assert_eq(len(baks), 0,
+                  "PR-D: hooks=true re-install creates no backup")
+
+        # T-PR-D-2: config.toml with hooks=false → must rewrite to true.
+        # [mcp] and [plugins] sections must survive.
+        cfg2 = pr_d_dir / "rewrite.toml"
+        cfg2_original = (
+            "# header comment\n"
+            "[features]\n"
+            "goals = true\n"
+            "hooks = false\n"
+            "[mcp]\n"
+            'servers = ["foo", "bar"]\n'
+            "[plugins]\n"
+            'name = "x"\n'
+        )
+        cfg2.write_text(cfg2_original, encoding="utf-8")
+        hooks2 = pr_d_dir / "rewrite-hooks.json"
+        hooks2.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
+                          encoding="utf-8")
+        r = run([
+            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            "--hooks-file", str(hooks2),
+            "--config-file", str(cfg2),
+            "--no-strict-verify",
+        ])
+        assert_eq(r.returncode, 0, "PR-D hooks=false rewrite ok")
+        # Read back and verify features.hooks == True
+        import tomllib as _tomllib
+        with open(cfg2, "rb") as f:
+            data = _tomllib.load(f)
+        assert_eq(data.get("features", {}).get("hooks"), True,
+                  "PR-D: hooks=false rewritten to true")
+        # [mcp] and [plugins] sections preserved
+        assert_true(isinstance(data.get("mcp"), dict)
+                    and data["mcp"].get("servers") == ["foo", "bar"],
+                    "PR-D: [mcp] section preserved")
+        assert_true(isinstance(data.get("plugins"), dict)
+                    and data["plugins"].get("name") == "x",
+                    "PR-D: [plugins] section preserved")
+        # Backup WAS made (because write was needed)
+        baks = list(pr_d_dir.glob("rewrite.toml.bak-*"))
+        assert_eq(len(baks), 1,
+                  "PR-D: hooks=false rewrite creates exactly 1 backup")
+
+        # T-PR-D-3: empty config.toml → installer creates [features] hooks=true.
+        cfg3 = pr_d_dir / "empty.toml"
+        # Don't create the file — installer should write it fresh.
+        hooks3 = pr_d_dir / "empty-hooks.json"
+        hooks3.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
+                          encoding="utf-8")
+        r = run([
+            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            "--hooks-file", str(hooks3),
+            "--config-file", str(cfg3),
+            "--no-strict-verify",
+        ])
+        assert_eq(r.returncode, 0, "PR-D empty config.toml install ok")
+        assert_true(cfg3.exists(), "PR-D: empty config.toml was created")
+        with open(cfg3, "rb") as f:
+            data = _tomllib.load(f)
+        assert_eq(data.get("features", {}).get("hooks"), True,
+                  "PR-D: empty config.toml gets features.hooks = true")
+
+        # T-PR-D-4: hooks = "true" (quoted) — both TOML branch and
+        # regex fallback should agree the feature is enabled.
+        cfg4 = pr_d_dir / "quoted.toml"
+        cfg4.write_text('[features]\nhooks = "true"\n', encoding="utf-8")
+        hooks4 = pr_d_dir / "quoted-hooks.json"
+        # Pre-create hooks.json with a valid Light RIP entry so the
+        # verifier sees installed=True.
+        hooks4.write_text(json.dumps({
+            "hooks": {
+                "UserPromptSubmit": [{
+                    "metadata": {
+                        "hook_namespace": "light-rip-reminder",
+                    },
+                    "hooks": [{"type": "command", "command": "echo"}],
+                }]
+            }
+        }), encoding="utf-8")
+        r = run([
+            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            "--hooks-file", str(hooks4),
+            "--config-file", str(cfg4),
+            "--no-strict-verify",
+        ])
+        # Should succeed; hooks = "true" is already enabled so no write
+        assert_eq(r.returncode, 0, "PR-D hooks=\"true\" install ok")
+        # File should be byte-equal (no rewrite)
+        with open(cfg4, "rb") as f:
+            raw = f.read().decode("utf-8")
+        assert_true('hooks = "true"' in raw,
+                    "PR-D: hooks = \"true\" preserved byte-equal")
+        # Verify
+        r = run([
+            PYTHON, str(HOOKS / "verify_install.py"),
+            "--runtime", "codex",
+            "--codex-hooks", str(hooks4),
+            "--codex-config", str(cfg4),
+            "--json",
+        ])
+        j = json.loads(r.stdout)
+        rc = j.get("runtime_checks", {}).get("codex", {})
+        assert_eq(rc.get("installed"), True,
+                  "PR-D: verify_install recognizes hooks = \"true\" as enabled")
+
+        # T-PR-D-5: corrupt config.toml → invalid_runtime_config, no backup.
+        cfg5 = pr_d_dir / "corrupt.toml"
+        cfg5.write_text("42 = not a valid TOML line at all", encoding="utf-8")
+        hooks5 = pr_d_dir / "corrupt-hooks.json"
+        hooks5.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
+                          encoding="utf-8")
+        baks_before = list(pr_d_dir.glob("corrupt.toml.bak-*"))
+        r = run([
+            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            "--hooks-file", str(hooks5),
+            "--config-file", str(cfg5),
+            "--no-strict-verify",
+        ])
+        assert_eq(r.returncode, 2,
+                  "PR-D: corrupt config.toml returns 2")
+        try:
+            j_err = json.loads(r.stderr.strip().splitlines()[-1])
+        except Exception:
+            j_err = {}
+        assert_eq(j_err.get("error"), "invalid_runtime_config",
+                  "PR-D: corrupt config.toml reports invalid_runtime_config")
+        baks_after = list(pr_d_dir.glob("corrupt.toml.bak-*"))
+        assert_eq(len(baks_after), len(baks_before),
+                  "PR-D: corrupt config.toml creates no backup (parse-before-backup)")
+
+        # T-PR-D-6: collision only when write is needed.
+        cfg6 = pr_d_dir / "collision.toml"
+        cfg6.write_text("[features]\nhooks = false\n", encoding="utf-8")
+        hooks6 = pr_d_dir / "collision-hooks.json"
+        hooks6.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
+                          encoding="utf-8")
+        r1 = run([
+            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            "--hooks-file", str(hooks6),
+            "--config-file", str(cfg6),
+            "--no-strict-verify",
+        ])
+        assert_eq(r1.returncode, 0, "PR-D collision: first install ok")
+        # Second install (hooks=false again → write needed → collision)
+        r2 = run([
+            PYTHON, str(HOOKS / "install_codex_hook.py"),
+            "--hooks-file", str(hooks6),
+            "--config-file", str(cfg6),
+            "--no-strict-verify",
+        ])
+        assert_eq(r2.returncode, 2, "PR-D collision: second install returns 2")
+        try:
+            j2 = json.loads(r2.stderr.strip().splitlines()[-1])
+        except Exception:
+            j2 = {}
+        assert_eq(j2.get("error"), "backup_collision",
+                  "PR-D collision: error=backup_collision")
+
         print("\nALL TESTS PASSED")
 
 

@@ -46,6 +46,23 @@ import subprocess
 import sys
 from pathlib import Path
 
+# tomllib is stdlib from Python 3.11; tomli is the backport. tomli_w
+# is required for writing because Python < 3.11 has no stdlib TOML
+# writer. ImportError is mapped to a clear error message at the call
+# site so the user knows to `pip install tomli-w`.
+try:
+    import tomllib  # type: ignore[import-not-found]
+except ImportError:
+    try:
+        import tomli as tomllib  # type: ignore[import-untyped,no-redef]
+    except ImportError:
+        tomllib = None  # type: ignore[assignment]
+
+try:
+    import tomli_w  # type: ignore[import-not-found]
+except ImportError:
+    tomli_w = None  # type: ignore[assignment]
+
 from installer_common import (
     BackupCollisionError,
     NAMESPACE,
@@ -61,50 +78,129 @@ def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def ensure_hooks_feature(config_path: Path) -> None:
-    """Ensure ``[features] hooks = true`` exists in ``config.toml``.
+class ConfigTomlError(Exception):
+    """Raised when ``config.toml`` cannot be safely edited.
 
-    Uses regex line surgery rather than a TOML parser so this works
-    on any Python version. Raises ``OSError`` on read or write
-    failure; the function does not validate the file's overall
-    shape — it appends or rewrites the ``[features]`` block and
-    leaves other content alone.
+    The installer maps this to ``error=invalid_runtime_config`` with
+    exit code 2. Use this for parse errors, non-UTF-8 content, non-dict
+    root, and missing ``tomli_w`` dependency — every case where the
+    file is structurally wrong rather than the system being unable to
+    write to disk.
     """
-    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _is_truthy_hooks(value: object) -> bool:
+    """Match Codex's own acceptance of ``[features] hooks`` values.
+
+    Codex treats both the TOML boolean ``true`` and the case-
+    insensitive string ``"true"`` as enabled (its schema is more
+    permissive than TOML's strict type system). Match that here so a
+    user who hand-edited ``hooks = "true"`` is reported as installed
+    and so the installer does not rewrite their config.
+
+    Reject any other non-empty string (``"false"``, ``"0"``, …) —
+    ``bool("false")`` is True in Python because the string is
+    non-empty, which would otherwise be a silent false positive.
+    """
+    if value is True:
+        return True
+    if isinstance(value, str) and value.strip().lower() == "true":
+        return True
+    return False
+
+
+def check_hooks_feature(config_path: Path) -> tuple[bool, str | None]:
+    """Decide whether ``[features] hooks = true`` needs to be written.
+
+    Returns ``(needs_write, error_message)``:
+
+      * ``(True, None)`` — file does not exist (caller should write a
+        fresh ``[features]`` block) OR file exists but
+        ``[features] hooks`` is not already truthy per
+        ``_is_truthy_hooks``.
+      * ``(False, None)`` — file already has ``[features] hooks`` set
+        to a truthy value (idempotent: caller should NOT rewrite, to
+        preserve the file's existing comments and formatting
+        byte-equal).
+      * ``(_, "<detail>")`` — file is unreadable / unparseable /
+        non-UTF-8 / non-dict root. Caller should report
+        ``error=invalid_runtime_config``.
+
+    ``OSError`` propagates to the caller (mapped to
+    ``permission_or_io_error``).
+    """
+    if not config_path.exists():
+        return True, None
+
+    if tomllib is None:
+        return False, (
+            "tomllib/tomli not installed; cannot read config.toml safely. "
+            "Install with: pip install tomli"
+        )
+
+    try:
+        with open(config_path, "rb") as f:
+            data = tomllib.load(f)
+    except (UnicodeDecodeError, ValueError) as exc:
+        # ``UnicodeDecodeError`` is a subclass of ``ValueError``; so is
+        # ``tomllib.TOMLDecodeError``. Surface them uniformly.
+        return False, f"parse error: {exc}"
+
+    if not isinstance(data, dict):
+        return False, (
+            f"root is not a table (got {type(data).__name__})"
+        )
+
+    features = data.get("features")
+    if isinstance(features, dict) and _is_truthy_hooks(features.get("hooks")):
+        return False, None  # idempotent — preserve file byte-equal
+
+    return True, None
+
+
+def write_hooks_feature(config_path: Path) -> None:
+    """Read ``config.toml``, set ``[features] hooks = true``, write back.
+
+    Caller must have already backed up ``config_path`` (via
+    ``backup_file``). This function reads + mutates + writes; if any
+    step fails it propagates ``OSError``. Raises ``ConfigTomlError`` if
+    ``tomli_w`` is missing — the user needs ``pip install tomli-w``.
+
+    Known regression: ``tomli_w.dump`` does NOT preserve TOML comments
+    or original formatting. We only reach this code path when the
+    existing ``[features] hooks`` value differs from ``True``; if the
+    file already has ``hooks = true``, ``check_hooks_feature`` returns
+    ``(False, None)`` and this function is not called, so comments are
+    preserved.
+    """
+    if tomli_w is None:
+        raise ConfigTomlError(
+            "tomli_w not installed; cannot write config.toml. "
+            "Install with: pip install tomli-w"
+        )
+
     if not config_path.exists():
         atomic_write_text(config_path, "[features]\nhooks = true\n")
         return
 
-    try:
-        raw = config_path.read_text(encoding="utf-8-sig")
-    except OSError:
-        raise
-    lines = raw.splitlines()
-    features_start = None
-    next_section = len(lines)
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped == "[features]":
-            features_start = index
-            continue
-        if features_start is not None and index > features_start and stripped.startswith("[") and stripped.endswith("]"):
-            next_section = index
-            break
+    with open(config_path, "rb") as f:
+        data = tomllib.load(f)
 
-    if features_start is None:
-        prefix = lines + ([] if not lines or lines[-1] == "" else [""])
-        prefix.extend(["[features]", "hooks = true"])
-        atomic_write_text(config_path, "\n".join(prefix) + "\n")
-        return
+    if not isinstance(data, dict):
+        # Caller should have caught this via ``check_hooks_feature``;
+        # defensive guard.
+        raise ConfigTomlError(
+            f"config.toml root is not a table (got {type(data).__name__})"
+        )
 
-    for index in range(features_start + 1, next_section):
-        if lines[index].strip().startswith("hooks"):
-            lines[index] = "hooks = true"
-            atomic_write_text(config_path, "\n".join(lines) + "\n")
-            return
+    features = data.get("features")
+    if not isinstance(features, dict):
+        features = {}
+        data["features"] = features
+    features["hooks"] = True
 
-    lines.insert(next_section, "hooks = true")
-    atomic_write_text(config_path, "\n".join(lines) + "\n")
+    with open(config_path, "wb") as f:
+        tomli_w.dump(data, f)
 
 
 def build_group(python_exe: Path, hook_script: Path) -> dict:
@@ -209,36 +305,6 @@ def main() -> int:
         }, ensure_ascii=True), file=sys.stderr)
         return 2
 
-    try:
-        config_bak = backup_file(config_path, force=args.force_backup)
-    except BackupCollisionError as exc:
-        print(json.dumps({
-            "error": "backup_collision",
-            "target": "config",
-            "hooks_path": str(hooks_path),
-            "config_path": str(config_path),
-            "backup_path": exc.backup_path,
-            "hooks_backup": str(hooks_bak) if hooks_bak else None,
-            "hint": ("pass --force-backup to overwrite, or rename the "
-                     "existing backup (recovery paths printed in the "
-                     "error key are NOT shell-escaped; quote them with "
-                     "your shell of choice when copying)"),
-        }, ensure_ascii=True), file=sys.stderr)
-        return 2
-    except OSError as exc:
-        print(json.dumps({
-            "error": "permission_or_io_error",
-            "stage": "backup",
-            "target": "config",
-            "hooks_path": str(hooks_path),
-            "config_path": str(config_path),
-            "hooks_backup": str(hooks_bak) if hooks_bak else None,
-            "detail": str(exc),
-            "hint": ("check that the parent directory is writable; this "
-                     "is a filesystem problem, not a same-day collision"),
-        }, ensure_ascii=True), file=sys.stderr)
-        return 2
-
     # Step 3: upsert + atomic write hooks.json.
     upsert_light_rip(existing, build_group(python_exe, hook_script))
     try:
@@ -259,25 +325,114 @@ def main() -> int:
         }, ensure_ascii=True), file=sys.stderr)
         return 2
 
-    # Step 4: enable the feature in config.toml.
+    # Step 4: enable [features] hooks = true in config.toml, applying
+    # the same parse-before-backup invariant as hooks.json. We
+    # check first, then back up only when a write is actually
+    # needed. Idempotent re-installs (hooks already true) make no
+    # backup and no write — the file stays byte-equal so its
+    # comments and formatting are preserved.
     if not args.no_enable_feature:
         try:
-            ensure_hooks_feature(config_path)
+            needs_write, parse_err = check_hooks_feature(config_path)
         except OSError as exc:
             print(json.dumps({
                 "error": "permission_or_io_error",
-                "stage": "write",
+                "stage": "load",
                 "target": "config",
                 "hooks_path": str(hooks_path),
                 "config_path": str(config_path),
                 "hooks_backup": str(hooks_bak) if hooks_bak else None,
-                "config_backup": str(config_bak) if config_bak else None,
                 "detail": str(exc),
-                "hint": ("restore manually from the config_backup path "
-                         "above; the reported paths are NOT shell-escaped "
-                     "— quote them with your shell of choice when copying"),
+                "hint": ("check that config.toml is readable; this is a "
+                         "filesystem problem, not a config error"),
             }, ensure_ascii=True), file=sys.stderr)
             return 2
+
+        if parse_err:
+            print(json.dumps({
+                "error": "invalid_runtime_config",
+                "stage": "load",
+                "target": "config",
+                "hooks_path": str(hooks_path),
+                "config_path": str(config_path),
+                "hooks_backup": str(hooks_bak) if hooks_bak else None,
+                "detail": parse_err,
+                "hint": ("fix or remove the corrupt config.toml first; do "
+                         "NOT pass --force-backup because no good backup "
+                         "exists yet"),
+            }, ensure_ascii=True), file=sys.stderr)
+            return 2
+
+        if needs_write:
+            # Parse-before-backup: source has been validated; only now
+            # do we create a recovery snapshot.
+            try:
+                config_bak = backup_file(config_path, force=args.force_backup)
+            except BackupCollisionError as exc:
+                print(json.dumps({
+                    "error": "backup_collision",
+                    "target": "config",
+                    "hooks_path": str(hooks_path),
+                    "config_path": str(config_path),
+                    "backup_path": exc.backup_path,
+                    "hooks_backup": str(hooks_bak) if hooks_bak else None,
+                    "hint": ("pass --force-backup to overwrite, or rename "
+                             "the existing backup (recovery paths printed "
+                             "in the error key are NOT shell-escaped; quote "
+                             "them with your shell of choice when copying)"),
+                }, ensure_ascii=True), file=sys.stderr)
+                return 2
+            except OSError as exc:
+                print(json.dumps({
+                    "error": "permission_or_io_error",
+                    "stage": "backup",
+                    "target": "config",
+                    "hooks_path": str(hooks_path),
+                    "config_path": str(config_path),
+                    "hooks_backup": str(hooks_bak) if hooks_bak else None,
+                    "detail": str(exc),
+                    "hint": ("check that the parent directory is writable; "
+                             "this is a filesystem problem, not a same-day "
+                             "collision"),
+                }, ensure_ascii=True), file=sys.stderr)
+                return 2
+
+            try:
+                write_hooks_feature(config_path)
+            except ConfigTomlError as exc:
+                # Typically: tomli_w is not installed, or the source
+                # became non-dict between check and write. Map to
+                # invalid_runtime_config so callers see one envelope
+                # for all config-shape problems.
+                print(json.dumps({
+                    "error": "invalid_runtime_config",
+                    "stage": "write",
+                    "target": "config",
+                    "hooks_path": str(hooks_path),
+                    "config_path": str(config_path),
+                    "hooks_backup": str(hooks_bak) if hooks_bak else None,
+                    "config_backup": str(config_bak) if config_bak else None,
+                    "detail": str(exc),
+                    "hint": ("install tomli_w with `pip install tomli-w`, "
+                             "or fix the config.toml shape"),
+                }, ensure_ascii=True), file=sys.stderr)
+                return 2
+            except OSError as exc:
+                print(json.dumps({
+                    "error": "permission_or_io_error",
+                    "stage": "write",
+                    "target": "config",
+                    "hooks_path": str(hooks_path),
+                    "config_path": str(config_path),
+                    "hooks_backup": str(hooks_bak) if hooks_bak else None,
+                    "config_backup": str(config_bak) if config_bak else None,
+                    "detail": str(exc),
+                    "hint": ("restore manually from the config_backup path "
+                             "above; the reported paths are NOT shell-"
+                             "escaped — quote them with your shell of "
+                             "choice when copying"),
+                }, ensure_ascii=True), file=sys.stderr)
+                return 2
 
     # Print the success record BEFORE running the verifier so the
     # record survives even if the verifier fails afterwards.
