@@ -120,6 +120,26 @@ def _safe_load_json(path: Path) -> tuple[object | None, str]:
         return None, f"invalid_json: {exc}"
 
 
+def _latest_backup(path: Path) -> Path | None:
+    """Return the most recent <path>.bak-* sibling by mtime, or None."""
+    candidates = [
+        p for p in path.parent.glob(path.name + ".bak-*")
+        if p.is_file() and p != path
+    ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: (p.stat().st_mtime, p.name))
+
+
+def _backup_hint(path: Path) -> str:
+    """Append a manual-restore hint pointing at the most recent
+    <path>.bak-* sibling, or empty string if none exists."""
+    latest = _latest_backup(path)
+    if latest is None:
+        return ""
+    return f"; most recent backup: {latest} (restore: cp '{latest}' '{path}')"
+
+
 # ---------- script-side checks ----------
 
 def check_reminder_md_readable() -> dict:
@@ -227,7 +247,7 @@ def check_claude(settings_path: Path) -> dict:
         return {**base, "skipped_reason": "file_not_found"}
     if err:
         return {**base, "probed": True, "corrupt": True,
-                "detail": f"runtime config corrupt: {err}"}
+                "detail": f"runtime config corrupt: {err}{_backup_hint(settings_path)}"}
     if not isinstance(settings, dict):
         return {**base, "probed": True, "corrupt": True,
                 "detail": "runtime config root is not a JSON object"}
@@ -296,7 +316,7 @@ def check_codex(hooks_path: Path, config_path: Path) -> dict:
         return {**base, "skipped_reason": "file_not_found"}
     if err:
         return {**base, "probed": True, "corrupt": True,
-                "detail": f"runtime config corrupt: {err}"}
+                "detail": f"runtime config corrupt: {err}{_backup_hint(hooks_path)}"}
     if not isinstance(hooks, dict):
         return {**base, "probed": True, "corrupt": True,
                 "detail": "hooks.json root is not a JSON object"}
@@ -311,7 +331,7 @@ def check_codex(hooks_path: Path, config_path: Path) -> dict:
         # parse error -- treat as corrupt
         return {**base, "probed": True, "corrupt": True,
                 "match_count": count,
-                "detail": f"config.toml parse error: {feature}"}
+                "detail": f"config.toml parse error: {feature}{_backup_hint(config_path)}"}
     if feature is None:
         feature_detail = "config.toml missing"
     elif feature is True:

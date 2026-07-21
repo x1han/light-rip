@@ -8,6 +8,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+from installer_common import (
+    BackupCollisionError,
+    atomic_write_json,
+    atomic_write_text,
+    backup_file,
+)
+
 
 NAMESPACE = "light-rip-reminder"
 
@@ -22,15 +29,10 @@ def load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
-def write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
-
-
 def ensure_hooks_feature(config_path: Path) -> None:
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     if not config_path.exists():
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text("[features]\nhooks = true\n", encoding="utf-8")
+        atomic_write_text(config_path, "[features]\nhooks = true\n")
         return
 
     lines = config_path.read_text(encoding="utf-8-sig").splitlines()
@@ -48,17 +50,17 @@ def ensure_hooks_feature(config_path: Path) -> None:
     if features_start is None:
         prefix = lines + ([] if not lines or lines[-1] == "" else [""])
         prefix.extend(["[features]", "hooks = true"])
-        config_path.write_text("\n".join(prefix) + "\n", encoding="utf-8")
+        atomic_write_text(config_path, "\n".join(prefix) + "\n")
         return
 
     for index in range(features_start + 1, next_section):
         if lines[index].strip().startswith("hooks"):
             lines[index] = "hooks = true"
-            config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            atomic_write_text(config_path, "\n".join(lines) + "\n")
             return
 
     lines.insert(next_section, "hooks = true")
-    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(config_path, "\n".join(lines) + "\n")
 
 
 def build_group(python_exe: Path, hook_script: Path) -> dict:
@@ -94,6 +96,9 @@ def main() -> int:
     parser.add_argument("--hooks-file", type=Path, default=codex_home() / "hooks.json")
     parser.add_argument("--config-file", type=Path, default=codex_home() / "config.toml")
     parser.add_argument("--no-enable-feature", action="store_true", help="Do not edit config.toml to enable Codex hooks.")
+    parser.add_argument("--force-backup", action="store_true",
+                        help="Overwrite an existing <path>.bak-YYYY-MM-DD "
+                             "backup instead of aborting with exit 2.")
     parser.add_argument("--strict-verify", action="store_true",
                         help="Exit with the verifier's code if verify_install.py "
                              "reports a problem. Default OFF for backward "
@@ -105,12 +110,74 @@ def main() -> int:
     hook_script = Path(__file__).resolve().parent / "light_rip_reminder.py"
     python_exe = Path(sys.executable).resolve()
 
+    # Back up BOTH target files before any write. Collision on either
+    # aborts the whole install so a partial backup never looks good.
+    try:
+        hooks_bak = backup_file(hooks_path, force=args.force_backup)
+    except BackupCollisionError as exc:
+        print(json.dumps({
+            "error": "backup_collision",
+            "target": "hooks",
+            "hooks_path": str(hooks_path),
+            "backup_path": exc.backup_path,
+            "hint": "pass --force-backup to overwrite, or rename the existing backup",
+        }, ensure_ascii=True), file=sys.stderr)
+        return 2
+    try:
+        config_bak = backup_file(config_path, force=args.force_backup)
+    except BackupCollisionError as exc:
+        print(json.dumps({
+            "error": "backup_collision",
+            "target": "config",
+            "config_path": str(config_path),
+            "backup_path": exc.backup_path,
+            "hooks_backup": str(hooks_bak) if hooks_bak else None,
+            "hint": "pass --force-backup to overwrite, or rename the existing backup",
+        }, ensure_ascii=True), file=sys.stderr)
+        return 2
+
     hooks_config = load_json(hooks_path)
     upsert(hooks_config, build_group(python_exe, hook_script))
-    write_json(hooks_path, hooks_config)
+    try:
+        atomic_write_json(hooks_path, hooks_config)
+    except Exception as exc:
+        print(json.dumps({
+            "error": "write_failed",
+            "target": "hooks",
+            "hooks_path": str(hooks_path),
+            "config_path": str(config_path),
+            "hooks_backup": str(hooks_bak) if hooks_bak else None,
+            "config_backup": str(config_bak) if config_bak else None,
+            "detail": str(exc),
+            "hint": "restore from backup with: cp '<backup>' '<target>'",
+        }, ensure_ascii=True), file=sys.stderr)
+        return 2
+
     if not args.no_enable_feature:
-        ensure_hooks_feature(config_path)
-    print(json.dumps({"hooks_path": str(hooks_path), "config_path": str(config_path), "hook": NAMESPACE}, ensure_ascii=True))
+        try:
+            ensure_hooks_feature(config_path)
+        except Exception as exc:
+            print(json.dumps({
+                "error": "write_failed",
+                "target": "config",
+                "hooks_path": str(hooks_path),
+                "config_path": str(config_path),
+                "hooks_backup": str(hooks_bak) if hooks_bak else None,
+                "config_backup": str(config_bak) if config_bak else None,
+                "detail": str(exc),
+                "hint": "restore from backup with: cp '<backup>' '<target>'",
+            }, ensure_ascii=True), file=sys.stderr)
+            return 2
+
+    print(json.dumps({
+        "hooks_path": str(hooks_path),
+        "config_path": str(config_path),
+        "hook": NAMESPACE,
+        "backups": {
+            "hooks": str(hooks_bak) if hooks_bak else None,
+            "config": str(config_bak) if config_bak else None,
+        },
+    }, ensure_ascii=True))
     sys.stdout.flush()
 
     # Always run the runtime-agnostic verifier after install. With
