@@ -9,9 +9,10 @@ script does **not** write any files and does
 structured prompt that:
 
   1. States what the reminder is and where its source files live.
-  2. Walks the receiving agent through two reference examples —
-     OpenCode (instructions path) and ZCode (hook path) — and asks
-     it to install for its own runtime **by analogy**.
+  2. Walks the receiving agent through the OpenCode worked example
+     (instructions path) and asks it to install for its own runtime
+     **by analogy**, picking the instructions path or the hook path
+     based on its own loader.
   3. Names the verify script to confirm the install landed.
 
 The script is deliberately **agent-name-agnostic**. We do not
@@ -164,76 +165,15 @@ The reminder script contract is the same on every runtime:
     still run. The script fails open: missing `reminder.md` does not
     block the prompt.
 
-**Worked example — ZCode**:
-
-ZCode stores its user-level config at `~/.zcode/cli/config.json`.
-(Note: there is also a `~/.zcode/v2/config.json` and a top-level
-`~/.zcode/config.json`, but ZCode's hook loader does NOT read those —
-it reads `cli/config.json`.) Verified by inspecting the asar source:
-
-  - `function bF(e, t)` (the `getRootDir` function in
-    `resources/app.asar → out/host/index.js`) resolves
-    `e === "zcode"` with `t` undefined to `fg(home, ".zcode", "cli")`.
-  - `function b_(e, t)` (the `getConfigPath` function) then appends
-    `"config.json"`. Final result: `~/.zcode/cli/config.json`.
-
-The same loader's `fromZCodeHooksConfig` reads a `hooks` block of this
-shape:
-
-  - top-level `hooks` keys allowed: `enabled`, `timeoutMs`,
-    `maxOutputBytes`, `events`.
-  - `events.<Event>[i] = {{ matcher?, hooks: [...] }}` where
-    `matcher`, if present, MUST be a non-empty string (Zod schema
-    enforces `min(1)`; the runtime silently drops the whole `hooks`
-    block on schema failure). Omit `matcher` to match all prompts.
-  - `hooks[i] required fields`: `type="process"`, `command`,
-    `args?` (list), `timeoutMs?` (number).
-
-  - The `type` MUST be `"process"` (not `"command"`); ZCode's
-    main hook path silently skips entries of other types.
-
-Caveat on `--format zcode` (empirically untested minimum)
----------------------------------------------------------
-The reminder script accepts `--format zcode` to emit a ZCode-shaped
-envelope. This adapter was written against ZCode's documented
-`additionalContext` field but has NOT been end-to-end verified
-against a live ZCode desktop install firing on a real prompt. If
-after install you observe the reminder NOT appearing in your
-context, fall back to `--format harness` (the broad-compatibility
-default) — the harness envelope carries the same reminder content
-under `hookSpecificOutput.additionalContext`, which ZCode also
-parses as a generic hook layer.
-
-Install:
-  1. Open `~/.zcode/cli/config.json`. Preserve all existing top-level
-     keys (CLI state, …). Use Python `json.load` + dict merge +
-     `json.dump` rather than text editing.
-  2. Make sure `hooks.enabled` is `true` (only set it if absent; do
-     not clobber a deliberate `false`).
-  3. Set `hooks.timeoutMs` and `hooks.maxOutputBytes` only if absent
-     (do not overwrite the user's chosen values).
-  4. Under `hooks.events.UserPromptSubmit`, append an entry. The matcher
-     field is OPTIONAL — omit it (do NOT write `matcher: ""`, because
-     ZCode's Zod schema rejects empty strings with `min(1)` and silently
-     drops the whole `hooks` block). If you want to scope the hook to a
-     specific prompt pattern, write e.g. `matcher: "*"` or `matcher: ".+"`.
-     The entry shape:
-       hooks[0].type = "process"
-       hooks[0].command = {python_exe}
-       hooks[0].args = [{reminder_py}, "--format", "zcode"]
-       hooks[0].timeoutMs = 5000
-     Do not delete existing entries that belong to other tools.
-  5. Back up the file first (`cp ~/.zcode/cli/config.json
-     ~/.zcode/cli/config.json.bak-YYYY-MM-DD`).
-  6. Restart ZCode (the desktop app re-reads `cli/config.json` on launch).
-     Until restart, the hook will not fire.
-
-**By analogy for any other agent**: look up the runtime's hook schema
-in its own docs or in the loader source. Write a matching entry whose
-command spawns `{reminder_py} --format harness` with the runtime's
-expected JSON shape. The reminder script will print a
-`hookSpecificOutput.additionalContext` envelope that most runtimes
-accept verbatim.
+For a runtime whose hook layer is not yet covered by the dedicated
+installer (`install_hook_based_agent.py install --runtime <name>`),
+inspect the runtime's hook schema in its own docs or loader source.
+Write a matching entry whose command spawns `{reminder_py}` (the
+default `--format harness` works on most runtimes via the
+`hookSpecificOutput.additionalContext` envelope). If your runtime
+is Claude Code, Codex, or ZCode, run the dedicated installer with
+the matching `--runtime` flag instead of following this path by
+hand.
 
 **Dedicated installers exist for three well-known runtimes**:
   - Claude Code:  `python {skill}/hooks/install_hook_based_agent.py --runtime claude`
