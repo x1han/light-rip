@@ -67,7 +67,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -93,7 +92,6 @@ from installer_common import (
     atomic_write_json,
     atomic_write_text,
     backup_file,
-    is_our_namespace,
     load_json_safe,
     upsert_light_rip,
 )
@@ -446,9 +444,9 @@ def _run_verifier(args: argparse.Namespace, *, verify_argv_extra: list[str]) -> 
                 "verify_missing",
                 expected=str(verify_path),
                 hint=("verify_install.py is missing from the install; "
-                      "the install itself succeeded, but the script-side "
-                      "smoke check could not run. Re-clone the skill or "
-                      "restore verify_install.py."),
+                      "the install itself succeeded, but the verifier "
+                      "could not run. Re-clone the skill or restore "
+                      "verify_install.py."),
             )
         return 0
     print("\n--- verify_install.py ---")
@@ -855,7 +853,7 @@ INSTALLERS = {
 
 
 # ---------------------------------------------------------------------------
-# Self-test (replaces smoke_fix_batch.py)
+# Self-test runner
 # ---------------------------------------------------------------------------
 
 # Result tracking for the in-process self-test runner.
@@ -1367,8 +1365,8 @@ def _self_test_zcode_detector(t: _SelfTest, hooks_dir: Path) -> None:
 
 
 def _self_test_cross_runtime_flag(t: _SelfTest, hooks_dir: Path) -> None:
-    """replaces T-UNI-3 (--no-enable-feature is gone): passing
-    --hooks-file under --runtime claude must abort with exit 2 and
+    """Cross-runtime flag rejection: passing a runtime-specific flag
+    under the wrong --runtime must abort with exit 2 and
     error=flag_not_applicable_for_runtime.
     """
     with tempfile.TemporaryDirectory(prefix="light-rip-selftest-flag-") as td:
