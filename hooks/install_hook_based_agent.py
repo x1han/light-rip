@@ -169,6 +169,18 @@ def build_codex_group(python_exe: Path, hook_script: Path) -> dict:
 def _is_our_zcode_entry(entry: object, python_exe: Path, reminder: Path) -> bool:
     """True iff ``entry`` is a prior Light RIP ZCode install we should dedup.
 
+    Accepts BOTH shapes for backward compatibility with installs
+    written before the wrapper-group canonicalisation:
+
+      * New wrapper shape: ``{"hooks": [<entry>]}`` — what the
+        installer now writes (and what ``verify_install.check_zcode``
+        reads via ``group.get("hooks")``).
+      * Legacy flat shape: ``{"type": "process", "command": ..., "args": [...]}``
+        — what the installer used to write under
+        ``events.UserPromptSubmit[]``. Old installs may still carry
+        one of these on disk; recognising them lets re-installs clean
+        up the stale entry instead of leaving it as dead weight.
+
     Mirrors the matching criterion in ``verify_install.check_zcode``:
     the entry MUST be ``type="process"`` (ZCode silently skips other
     types), its ``command`` MUST resolve to our recorded Python
@@ -180,6 +192,14 @@ def _is_our_zcode_entry(entry: object, python_exe: Path, reminder: Path) -> bool
     """
     if not isinstance(entry, dict):
         return False
+    # Unwrap wrapper shape; legacy flat shape passes through unchanged.
+    if "hooks" in entry and isinstance(entry.get("hooks"), list):
+        inner = entry["hooks"]
+        if not inner:
+            return False
+        entry = inner[0]
+        if not isinstance(entry, dict):
+            return False
     if str(entry.get("type", "")) != "process":
         return False
     cmd = entry.get("command", "")
@@ -753,17 +773,26 @@ def install_zcode(args: argparse.Namespace) -> int:
     # NO ``matcher`` key — Zod's min(1) rejects empty strings and
     # silently drops the whole hooks block. Omit it to match all
     # prompts.
+    #
+    # ZCode schema (per asar source) is:
+    #   events.<Event>[i] = {matcher?, hooks: [<entry>]}
+    # i.e. each top-level slot is a *wrapper group* whose ``hooks``
+    # array carries the actual process entries. The verifier reads
+    # ``group.get("hooks")``; writing a flat entry directly under
+    # ``events.UserPromptSubmit[]`` would cause ``match_count`` to
+    # stay 0 forever. Wrap accordingly.
     new_entry = {
         "type": "process",
         "command": str(python_exe),
         "args": [str(reminder)],
         "timeoutMs": 5000,
     }
+    new_wrapper = {"hooks": [new_entry]}
     ups_list[:] = [
         e for e in ups_list
         if not _is_our_zcode_entry(e, python_exe, reminder)
     ]
-    ups_list.append(new_entry)
+    ups_list.append(new_wrapper)
 
     # Step 3: back up the (known-good) source.
     backup_path: Path | None = None
@@ -1362,6 +1391,86 @@ def _self_test_cross_runtime_flag(t: _SelfTest, hooks_dir: Path) -> None:
                         j.get("flag"), "--hooks-file")
 
 
+def _self_test_install_verify_roundtrip(t: _SelfTest, hooks_dir: Path) -> None:
+    """Close the loop: installer writes -> verifier agrees.
+
+    Pre-1.0, the installer's ZCode branch wrote entries directly under
+    ``events.UserPromptSubmit[]`` while ``verify_install.check_zcode``
+    expected wrapper groups ``{hooks: [<entry>]}``. The mismatch was
+    silently tolerated by the smoke test (T-UNI-1/2 inspected the
+    installer's JSON directly, never via the verifier) and surfaced
+    only when an end user ran ``verify_install.py`` and got
+    ``match_count: 0`` for an install that had just reported success.
+
+    This round-trip contract — "an install the installer reports as
+    succeeded must be detectable as installed by the verifier" — is
+    the single most important contract on the whole installer. Run it
+    for every supported runtime; if any fails, ship-blocker.
+    """
+    sys.path.insert(0, str(hooks_dir))
+    from verify_install import check_claude, check_codex, check_zcode
+
+    with tempfile.TemporaryDirectory(prefix="light-rip-roundtrip-") as td:
+        td = Path(td)
+
+        # --- Claude round-trip ---
+        claude_settings = td / "claude.json"
+        rc, _, _, _ = _run_subprocess(
+            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+             "install", "--runtime", "claude",
+             "--settings-file", str(claude_settings),
+             "--no-strict-verify"],
+        )
+        t.assert_eq("claude round-trip: install rc", rc, 0)
+        result = check_claude(claude_settings)
+        t.assert_eq("claude round-trip: verifier installed=True",
+                    result.get("installed"), True)
+        t.assert_eq("claude round-trip: verifier match_count=1",
+                    result.get("match_count"), 1)
+
+        # --- Codex round-trip ---
+        codex_hooks = td / "codex-hooks.json"
+        codex_config = td / "codex-config.toml"
+        rc, _, _, _ = _run_subprocess(
+            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+             "install", "--runtime", "codex",
+             "--hooks-file", str(codex_hooks),
+             "--config-file", str(codex_config),
+             "--no-strict-verify"],
+        )
+        t.assert_eq("codex round-trip: install rc", rc, 0)
+        result = check_codex(codex_hooks, codex_config)
+        t.assert_eq("codex round-trip: verifier installed=True",
+                    result.get("installed"), True)
+        t.assert_eq("codex round-trip: verifier match_count=1",
+                    result.get("match_count"), 1)
+
+        # --- ZCode round-trip (this is the bug that surfaced pre-fix) ---
+        zcode_cfg = td / "zcode.json"
+        rc, _, _, _ = _run_subprocess(
+            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+             "install", "--runtime", "zcode",
+             "--zcode-config", str(zcode_cfg),
+             "--no-strict-verify"],
+        )
+        t.assert_eq("zcode round-trip: install rc", rc, 0)
+        result = check_zcode(zcode_cfg)
+        t.assert_eq("zcode round-trip: verifier installed=True",
+                    result.get("installed"), True)
+        t.assert_eq("zcode round-trip: verifier match_count=1",
+                    result.get("match_count"), 1)
+        # Spot-check the wire shape too: top-level slot must be a
+        # wrapper group, not a flat entry.
+        import json as _json
+        cfg = _json.loads(zcode_cfg.read_text(encoding="utf-8"))
+        ups = cfg["hooks"]["events"]["UserPromptSubmit"]
+        t.assert_eq("zcode round-trip: exactly one top-level slot",
+                    len(ups), 1)
+        t.assert_eq("zcode round-trip: top-level slot has 'hooks' wrapper",
+                    isinstance(ups[0], dict) and isinstance(ups[0].get("hooks"), list),
+                    True)
+
+
 def run_self_test(args: argparse.Namespace) -> int:
     """Run the in-process self-test covering P0 contracts."""
     verbose = bool(getattr(args, "verbose", False))
@@ -1390,6 +1499,9 @@ def run_self_test(args: argparse.Namespace) -> int:
         print()
         print("[cross-runtime flag rejection]")
         _self_test_cross_runtime_flag(t, hooks_dir)
+        print()
+        print("[install+verify round-trip]")
+        _self_test_install_verify_roundtrip(t, hooks_dir)
     except Exception as exc:
         print(f"FAILED: self-test setup error — {type(exc).__name__}: {exc}",
               file=sys.stderr)
