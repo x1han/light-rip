@@ -332,6 +332,19 @@ def write_hooks_feature(config_path: Path) -> None:
 # Error envelope helper + flag/runtime mismatch validation
 # ---------------------------------------------------------------------------
 
+# Per-(flag, wrong-runtime) hints, lifted to constants so each
+# _validate_args rejection becomes a single line. Wire shape
+# (envelope keys + stderr JSON) unchanged.
+_HINT_HOOKS_FILE_CLAUDE = "--hooks-file is Codex-only; omit it under --runtime claude"
+_HINT_HOOKS_FILE_ZCODE = "--hooks-file is Codex-only; omit it under --runtime zcode"
+_HINT_CONFIG_FILE_CLAUDE = "--config-file is Codex-only; omit it under --runtime claude"
+_HINT_CONFIG_FILE_ZCODE = "--config-file is Codex-only; omit it under --runtime zcode"
+_HINT_SETTINGS_FILE_CODEX = "--settings-file is Claude-only; omit it under --runtime codex"
+_HINT_SETTINGS_FILE_ZCODE = "--settings-file is Claude-only; omit it under --runtime zcode"
+_HINT_ZCODE_CONFIG_CLAUDE = "--zcode-config is ZCode-only; omit it under --runtime claude"
+_HINT_ZCODE_CONFIG_CODEX = "--zcode-config is ZCode-only; omit it under --runtime codex"
+
+
 def _emit_error(error: str, *, code: int = 2, **fields) -> int:
     """Write a JSON error envelope to stderr and return the exit code.
 
@@ -349,6 +362,13 @@ def _emit_error(error: str, *, code: int = 2, **fields) -> int:
     return code
 
 
+def _reject(flag: str, runtime: str, hint: str) -> int:
+    return _emit_error(
+        "flag_not_applicable_for_runtime",
+        flag=flag, runtime=runtime, hint=hint,
+    )
+
+
 def _validate_args(args: argparse.Namespace) -> int | None:
     """Validate flag/runtime match. Returns None on success or exit code.
 
@@ -356,73 +376,34 @@ def _validate_args(args: argparse.Namespace) -> int | None:
     explicitly passed X under the wrong runtime". The runtime-correct
     defaults are filled in here.
     """
-    if args.runtime == "claude":
+    runtime = args.runtime
+    if runtime == "claude":
         if args.hooks_file is not None:
-            return _emit_error(
-                "flag_not_applicable_for_runtime",
-                flag="--hooks-file", runtime="claude",
-                hint=("--hooks-file is Codex-only; omit it under "
-                      "--runtime claude"),
-            )
+            return _reject("--hooks-file", "claude", _HINT_HOOKS_FILE_CLAUDE)
         if args.config_file is not None:
-            return _emit_error(
-                "flag_not_applicable_for_runtime",
-                flag="--config-file", runtime="claude",
-                hint=("--config-file is Codex-only; omit it under "
-                      "--runtime claude"),
-            )
+            return _reject("--config-file", "claude", _HINT_CONFIG_FILE_CLAUDE)
         if args.zcode_config is not None:
-            return _emit_error(
-                "flag_not_applicable_for_runtime",
-                flag="--zcode-config", runtime="claude",
-                hint=("--zcode-config is ZCode-only; omit it under "
-                      "--runtime claude"),
-            )
+            return _reject("--zcode-config", "claude", _HINT_ZCODE_CONFIG_CLAUDE)
         if args.settings_file is None:
             args.settings_file = default_claude_settings()
         return None
-    if args.runtime == "codex":
+    if runtime == "codex":
         if args.settings_file is not None:
-            return _emit_error(
-                "flag_not_applicable_for_runtime",
-                flag="--settings-file", runtime="codex",
-                hint=("--settings-file is Claude-only; omit it under "
-                      "--runtime codex"),
-            )
+            return _reject("--settings-file", "codex", _HINT_SETTINGS_FILE_CODEX)
         if args.zcode_config is not None:
-            return _emit_error(
-                "flag_not_applicable_for_runtime",
-                flag="--zcode-config", runtime="codex",
-                hint=("--zcode-config is ZCode-only; omit it under "
-                      "--runtime codex"),
-            )
+            return _reject("--zcode-config", "codex", _HINT_ZCODE_CONFIG_CODEX)
         if args.hooks_file is None:
             args.hooks_file = default_codex_hooks()
         if args.config_file is None:
             args.config_file = default_codex_config()
         return None
-    # args.runtime == "zcode"
+    # runtime == "zcode"
     if args.settings_file is not None:
-        return _emit_error(
-            "flag_not_applicable_for_runtime",
-            flag="--settings-file", runtime="zcode",
-            hint=("--settings-file is Claude-only; omit it under "
-                  "--runtime zcode"),
-        )
+        return _reject("--settings-file", "zcode", _HINT_SETTINGS_FILE_ZCODE)
     if args.hooks_file is not None:
-        return _emit_error(
-            "flag_not_applicable_for_runtime",
-            flag="--hooks-file", runtime="zcode",
-            hint=("--hooks-file is Codex-only; omit it under "
-                  "--runtime zcode"),
-        )
+        return _reject("--hooks-file", "zcode", _HINT_HOOKS_FILE_ZCODE)
     if args.config_file is not None:
-        return _emit_error(
-            "flag_not_applicable_for_runtime",
-            flag="--config-file", runtime="zcode",
-            hint=("--config-file is Codex-only; omit it under "
-                  "--runtime zcode"),
-        )
+        return _reject("--config-file", "zcode", _HINT_CONFIG_FILE_ZCODE)
     if args.zcode_config is None:
         args.zcode_config = default_zcode_config()
     return None
