@@ -42,6 +42,7 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 - Do not write a long spec unless the user asked for one.
 - Do not create commits, branches, or docs unless the user asked for them or the repo workflow requires them.
 - Reviewer and verifier subagents are read-only by default. They report issues or results; the main session fixes them.
+- Agent prompt files (`agents/*.md`) are passive templates and are NOT auto-loaded by the skill loader. Before invoking a subagent role, the main session MUST read the matching file and send its prompt body to the subagent.
 - Before writing generated code or config, check the proposed content for transcript contamination: analysis text, tool-call fragments, malformed JSON repair chatter, placeholder junk, or random mixed-language tokens.
 - If proposed write content looks contaminated, discard that write and regenerate a minimal clean edit. Do not try to patch around contaminated text.
 - When replacing existing source file content, inspect the proposed replacement for contamination before applying it; prefer minimal patch-style edits when available.
@@ -76,7 +77,7 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 
 2.5. Pre-work review (medium and large)
    After the plan exists, MUST spawn a reviewer subagent to scrutinize it before any code is written.
-   Use the Plan Reviewer Prompt below. The reviewer is read-only and reports findings by severity.
+   Use the [Plan Reviewer prompt](agents/plan_reviewer.md). The reviewer is read-only and reports findings by severity.
    Address P0/P1 issues by revising the plan. Do not start implementation until pre-work review
    approves or only flags non-blocking P2s.
 
@@ -86,7 +87,7 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 
 3.5. Independent verification (large only)
    After the implementer reports verification complete, MUST spawn a verifier subagent to re-run
-   the verification commands with fresh eyes. Use the Verifier Prompt below. The verifier is
+   the verification commands with fresh eyes. Use the [Verifier prompt](agents/verifier.md). The verifier is
    read-only and reports which checks passed, which failed, and any verification gap it noticed.
    Treat verifier findings (failed checks, missing checks, inadequate commands) as P0 issues —
    block completion until they are resolved or explicitly waived with evidence.
@@ -94,7 +95,7 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
 4. Post-work review (medium and large)
    After implementation (and verifier, for large), MUST spawn a reviewer subagent to scrutinize
    the diff and verification output. For Large, the reviewer sees both the implementer's report
-   and the verifier's independent report. Use the Reviewer Prompt below. The reviewer is read-only.
+   and the verifier's independent report. Use the [Reviewer prompt](agents/reviewer.md). The reviewer is read-only.
    Tiny: skip this step — main session self-reviews in step 5.
 
 5. Fix loop (all tiers)
@@ -103,157 +104,27 @@ If a task has auth, permissions, payment, data migration, security, concurrency,
    For nontrivial P1 fixes, do one short reviewer subagent re-review of the changed lines.
 ```
 
-## Planner Prompt
+## Agent Prompts
 
-Use this planner subagent prompt for large tasks. Tiny and medium tasks do planning inline in the main session.
+The role prompts live in `agents/*.md` as passive templates (see Operating Rules above for how to load them). When a user-provided reviewer skill is available, prefer it over `agents/reviewer.md` and `agents/plan_reviewer.md`.
 
-```text
-You are the planner for a lightweight coding workflow.
+| Role | File | Tier | Purpose |
+| --- | --- | --- | --- |
+| Planner | [`agents/planner.md`](agents/planner.md) | Large | Read-only planning subagent. |
+| Implementer | [`agents/implementer.md`](agents/implementer.md) | Large | Implements and self-verifies. |
+| Plan reviewer | [`agents/plan_reviewer.md`](agents/plan_reviewer.md) | Medium, Large | Pre-work review of the plan. |
+| Verifier | [`agents/verifier.md`](agents/verifier.md) | Large | Independent re-verification. |
+| Reviewer | [`agents/reviewer.md`](agents/reviewer.md) | Medium, Large | Post-work review of the diff. |
 
-Task:
-<user request>
+## Fallback Behavior
 
-Inspect only the context needed to make a small implementation plan. Do not edit files.
+Light RIP depends on subagent invocation and clean responses from subagents. When the workflow can't run cleanly:
 
-Return:
-- Goal
-- Assumptions or questions that would block implementation
-- Files/areas likely involved
-- Implementation steps, max 5 bullets
-- Verification commands
-- Main risks
-
-Keep the whole answer under 15 lines. If this is a tiny change, say "SKIP LIGHT RIP" and explain in one line.
-```
-
-If the planner has a blocking question, ask the user or resolve it from local context before implementation. If the question is not blocking, proceed with a stated assumption.
-
-If subagents are unavailable for a large task, say that Light RIP cannot run the large-task workflow as specified and ask whether to downgrade to the medium workflow.
-
-## Implementer Prompt
-
-Use this implementer subagent prompt for large tasks. Tiny and medium tasks are implemented by the main session.
-
-```text
-You are the implementer for a lightweight coding workflow.
-
-Task:
-<user request>
-
-Plan:
-<planner output>
-
-Rules:
-- Make the smallest code change that satisfies the task.
-- Match existing style and architecture.
-- Do not perform unrelated refactors.
-- Add or update focused tests when behavior changes.
-- Run the planned verification commands, or explain exactly why they cannot run.
-- Before writing generated code or config, check for transcript contamination or malformed tool-call repair text.
-- If proposed write content looks contaminated, discard it and regenerate a clean minimal edit.
-
-Return:
-- Changed files
-- What changed
-- Verification commands and results
-- Any concerns or follow-up risks
-```
-
-If subagents are unavailable for a large task, say that Light RIP cannot run the large-task workflow as specified and ask whether to downgrade to the medium workflow.
-
-## Plan Reviewer Prompt
-
-Use this prompt for the pre-work reviewer subagent on Medium and Large tasks. This pass reviews the plan only; do not use it for the post-work diff review.
-
-```text
-You are the independent plan reviewer for a lightweight coding workflow.
-
-User request:
-<original user prompt>
-
-Plan to review:
-<main-session inline plan OR planner subagent output>
-
-Do not edit files. Do not implement. Read-only review of the plan only.
-
-Focus on:
-- Does the plan address the right problem? Does it match the user's request?
-- Are the listed files and areas actually the right ones to change? Any obvious miss?
-- Is the verification approach sound? Will it actually catch a regression?
-- Are the assumptions stated, or are there hidden ones that block implementation?
-- Is there a clearly simpler or safer approach the plan missed?
-
-Report findings by severity:
-- P0 blocks implementation (wrong target, missing dependency, unverifiable)
-- P1 should be addressed before implementation
-- P2 worth considering, but not blocking
-
-If the plan is sound, say "Approved" and mention any residual risk the implementer should watch for.
-```
-
-If subagents are unavailable for the pre-work review on a medium or large task, say that Light RIP cannot run the requested tier as specified. Ask whether to downgrade to the tiny workflow.
-
-## Verifier Prompt
-
-Large tasks MUST spawn a verifier subagent after the implementer reports verification complete. The verifier independently re-runs the verification commands and reports what actually passes. Do not use this prompt for Medium — Medium does not have a verifier step.
-
-```text
-You are the independent verifier for a lightweight coding workflow.
-
-User request:
-<original user prompt>
-
-Plan to verify against:
-<main-session inline plan OR planner subagent output>
-
-Implementer's verification report:
-<implementer subagent's verification output>
-
-Do not edit files. Do not implement. Read-only verification only.
-
-Run the verification commands from the plan yourself, in a fresh context. Do not trust the
-implementer's report — your job is to independently confirm whether the planned checks actually
-pass on the current state of the code.
-
-Report:
-- Which verification commands you ran
-- Which ones passed, which ones failed, which ones you could not run (and why)
-- Any gap you noticed: tests that should have been run but were not, edge cases the implementer's
-  verification missed, or verification commands that look inadequate for catching regressions in this change
-- Whether the implementation matches the user's request from a behavioral standpoint (you do not need
-  to read every file, but spot-check the changed areas)
-
-If all planned checks pass and no gaps are obvious, say "Verified" and mention any residual concern
-the reviewer should follow up on.
-```
-
-If subagents are unavailable for the verifier step on a large task, say that Light RIP cannot run the large workflow as specified. Ask whether to downgrade to the medium workflow (which uses only the post-work reviewer).
-
-## Reviewer Prompt
-
-Medium and large tasks MUST spawn a reviewer subagent. Use an existing user-provided reviewer skill when available. If no reviewer skill is available, use this Light RIP reviewer prompt. The reviewer is read-only:
-
-```text
-You are the independent reviewer for a lightweight coding workflow.
-
-Review the diff against the original user request and the planner output. Do not edit files.
-
-Focus on:
-- requirement mismatches
-- bugs or regressions
-- missing or weak verification
-- generated-content contamination, including analysis text, tool-call repair chatter, malformed JSON fragments, placeholder junk, or random mixed-language tokens
-- risky overengineering or unrelated changes
-
-Report findings by severity:
-- P0 blocks completion
-- P1 should fix before completion
-- P2 worth considering, but not required for small tasks
-
-If there are no real issues, say "Approved" and mention any residual test gap.
-```
-
-If subagents are unavailable for a medium or large task, say that Light RIP cannot run the requested tier as specified. Ask whether to downgrade to the tiny workflow, which uses same-session self-review only.
+- **Planner asks a blocking question** on any tier: ask the user or resolve from local context before implementation. If not blocking, proceed with a stated assumption.
+- **Planner or Implementer** unavailable on a Large task: Light RIP cannot run the large-task workflow as specified. Ask whether to downgrade to the medium workflow.
+- **Plan Reviewer** unavailable on a Medium or Large task: Light RIP cannot run the requested tier as specified. Ask whether to downgrade to the tiny workflow.
+- **Verifier** unavailable on a Large task: Light RIP cannot run the large workflow as specified. Ask whether to downgrade to the medium workflow (which uses only the post-work reviewer).
+- **Reviewer** unavailable on a Medium or Large task: Light RIP cannot run the requested tier as specified. Ask whether to downgrade to the tiny workflow, which uses same-session self-review only.
 
 ## Completion Criteria
 
