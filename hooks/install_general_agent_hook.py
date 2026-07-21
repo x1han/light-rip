@@ -192,6 +192,18 @@ shape:
   - The `type` MUST be `"process"` (not `"command"`); ZCode's
     main hook path silently skips entries of other types.
 
+Caveat on `--format zcode` (empirically untested minimum)
+---------------------------------------------------------
+The reminder script accepts `--format zcode` to emit a ZCode-shaped
+envelope. This adapter was written against ZCode's documented
+`additionalContext` field but has NOT been end-to-end verified
+against a live ZCode desktop install firing on a real prompt. If
+after install you observe the reminder NOT appearing in your
+context, fall back to `--format harness` (the broad-compatibility
+default) — the harness envelope carries the same reminder content
+under `hookSpecificOutput.additionalContext`, which ZCode also
+parses as a generic hook layer.
+
 Install:
   1. Open `~/.zcode/cli/config.json`. Preserve all existing top-level
      keys (CLI state, …). Use Python `json.load` + dict merge +
@@ -208,7 +220,7 @@ Install:
      The entry shape:
        hooks[0].type = "process"
        hooks[0].command = {python_exe}
-       hooks[0].args = [{reminder_py}, "--format", "harness"]
+       hooks[0].args = [{reminder_py}, "--format", "zcode"]
        hooks[0].timeoutMs = 5000
      Do not delete existing entries that belong to other tools.
   5. Back up the file first (`cp ~/.zcode/cli/config.json

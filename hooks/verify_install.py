@@ -53,6 +53,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Make the sibling installer_common importable when this script is
+# invoked as `python hooks/verify_install.py` (which does NOT add the
+# script's directory to sys.path the way `python -m` does). We only
+# need the canonical NAMESPACE constant and the namespace predicate
+# from there — the bulk of this module is self-contained.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from installer_common import NAMESPACE, is_our_namespace  # noqa: E402
+
 # TOML fallback for Python < 3.11. tomllib is stdlib from 3.11 onward;
 # tomli is the backport; the regex fallback matches install_codex_hook.py
 # and works even without any TOML library installed.
@@ -66,7 +74,6 @@ except ImportError:
 
 
 REMINDER_MARKER = "Evidence Before Claims"
-NAMESPACE = "light-rip-reminder"
 REMINDER_SCRIPT_NAME = "light_rip_reminder.py"
 
 
@@ -225,15 +232,6 @@ def run_script_checks() -> list[dict]:
 
 # ---------- runtime-side checks ----------
 
-def _metadata_namespace_match(group: object) -> bool:
-    """True iff `group` is a dict whose `metadata.hook_namespace`
-    equals our namespace. Used by Claude and Codex."""
-    if not isinstance(group, dict):
-        return False
-    metadata = group.get("metadata")
-    return (isinstance(metadata, dict)
-            and metadata.get("hook_namespace") == NAMESPACE)
-
 
 def check_claude(settings_path: Path) -> dict:
     base = {
@@ -250,14 +248,14 @@ def check_claude(settings_path: Path) -> dict:
                 "detail": f"runtime config corrupt: {err}{_backup_hint(settings_path)}"}
     if not isinstance(settings, dict):
         return {**base, "probed": True, "corrupt": True,
-                "detail": "runtime config root is not a JSON object"}
+                "detail": f"runtime config root is not a JSON object{_backup_hint(settings_path)}"}
     hooks = settings.get("hooks")
     ups_list = (hooks.get("UserPromptSubmit")
                 if isinstance(hooks, dict) else None)
     if not isinstance(ups_list, list):
         return {**base, "probed": True,
                 "detail": "no UserPromptSubmit event entry"}
-    count = sum(1 for g in ups_list if _metadata_namespace_match(g))
+    count = sum(1 for g in ups_list if is_our_namespace(g))
     return {**base, "probed": True, "match_count": count,
             "installed": count == 1,
             "detail": _claude_codex_detail(settings_path, count)}
@@ -281,7 +279,11 @@ def _codex_feature_enabled(config_path: Path) -> bool | str:
         try:
             with open(config_path, "rb") as f:
                 data = tomllib.load(f)
-        except (OSError, Exception) as exc:
+        except OSError as exc:
+            return f"unreadable: {exc}"
+        # tomllib raises its own subclass of ValueError; catching
+        # `Exception` would also mask programming errors.
+        except ValueError as exc:
             return f"parse_error: {exc}"
         features = data.get("features") if isinstance(data, dict) else None
         if not isinstance(features, dict):
@@ -325,7 +327,7 @@ def check_codex(hooks_path: Path, config_path: Path) -> dict:
     if not isinstance(ups_list, list):
         return {**base, "probed": True,
                 "detail": "no UserPromptSubmit event entry"}
-    count = sum(1 for g in ups_list if _metadata_namespace_match(g))
+    count = sum(1 for g in ups_list if is_our_namespace(g))
     feature = _codex_feature_enabled(config_path)
     if isinstance(feature, str):
         # parse error -- treat as corrupt
@@ -367,13 +369,26 @@ def check_zcode(config_path: Path) -> dict:
         return {**base, "skipped_reason": "file_not_found"}
     if err:
         return {**base, "probed": True, "corrupt": True,
-                "detail": f"runtime config corrupt: {err}"}
+                "detail": f"runtime config corrupt: {err}{_backup_hint(config_path)}"}
     if not isinstance(cfg, dict):
         return {**base, "probed": True, "corrupt": True,
-                "detail": "runtime config root is not a JSON object"}
+                "detail": f"runtime config root is not a JSON object{_backup_hint(config_path)}"}
     hooks = cfg.get("hooks")
-    events = (hooks.get("events")
-              if isinstance(hooks, dict) else None)
+    if not isinstance(hooks, dict):
+        return {**base, "probed": True,
+                "detail": "no `hooks` block in runtime config"}
+    # ZCode's schema (verified via asar source) requires `hooks.enabled`
+    # to be true for the hook layer to load at all. A config with the
+    # entry present but `hooks.enabled: false` does NOT actually fire.
+    # Earlier this check was missing, which caused false-positive
+    # "installed" reports whenever the entry existed regardless of the
+    # toggle.
+    enabled = hooks.get("enabled")
+    if enabled is not True:
+        return {**base, "probed": True,
+                "detail": ("`hooks.enabled` is not true; ZCode will not "
+                           "fire hooks regardless of entries below")}
+    events = hooks.get("events")
     ups_groups = (events.get("UserPromptSubmit")
                   if isinstance(events, dict) else None)
     if not isinstance(ups_groups, list):
@@ -389,14 +404,33 @@ def check_zcode(config_path: Path) -> dict:
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
+            # ZCode's main hook path silently skips entries whose type
+            # is not "process". Earlier this check was missing, so a
+            # "command"-type entry (which the loader would discard)
+            # could still count as installed.
+            if str(entry.get("type", "")) != "process":
+                continue
             cmd = str(entry.get("command", ""))
             args = entry.get("args", [])
             arg_blob = (" ".join(str(a) for a in args)
                         if isinstance(args, list) else str(args))
-            # Require BOTH: command looks like a python executable AND
-            # args contains our script filename. This avoids false
-            # matches on tools that share a basename.
-            cmd_is_python = ("python" in cmd.lower() or cmd.lower().endswith(".exe"))
+            # Require BOTH: command basename looks like a Python
+            # interpreter AND args contains our script filename.
+            #
+            # The earlier predicate (`cmd.endswith(".exe") or "python"
+            # in cmd`) accepted any tool whose path ended in `.exe`
+            # (e.g. `node.exe`, `powershell.exe`) — every Windows
+            # process path matches. We now require the basename to
+            # start with "python" (e.g. python.exe, python3.12.exe,
+            # /usr/bin/python3) and explicitly reject `pythonw` (the
+            # GUI launcher, which does not run console scripts).
+            cmd_path = Path(cmd) if cmd else Path("")
+            cmd_basename = cmd_path.name.lower()
+            cmd_stem = cmd_path.stem.lower()
+            cmd_is_python = (
+                cmd_stem.startswith("python")
+                and not cmd_stem.startswith("pythonw")
+            )
             if cmd_is_python and REMINDER_SCRIPT_NAME in arg_blob:
                 count += 1
     return {
@@ -472,7 +506,17 @@ def compute_exit_code(
             continue
         if state.get("corrupt", False):
             any_c = True
+        # `installed` is the authoritative composite per-runtime
+        # verdict: for Codex it folds in `hooks.features.enabled`,
+        # which `match_count` alone does not capture. Trust the
+        # composite so a 1-match hook entry with a missing
+        # config.toml does not falsely exit 0.
+        elif not state.get("installed", False):
+            any_b = True
         elif state.get("match_count", 0) != 1:
+            # Ambiguous: more than one matching entry. `installed`
+            # already said False in this branch so we never reach
+            # here on a clean 1-match install.
             any_b = True
     if any_c:
         return 2
@@ -511,10 +555,10 @@ def render_human(script_checks: list[dict], runtime_checks: dict,
             ct = state["config_toml"]
             lines.append(f"         config.toml — {ct.get('detail', '')}")
     if not any_probed:
-        lines.append("  (no runtime config files found at default locations — "
+        lines.append(f"  (no runtime config files found at default locations — "
                      "install with install_claude_hook.py / "
-                     "install_codex_hook.py / install_zcode_hook.py, "
-                     "or follow install_general_agent_hook.py prompt)")
+                     "install_codex_hook.py, or follow the ZCode worked "
+                     "example printed by install_general_agent_hook.py)")
     return "\n".join(lines) + "\n"
 
 
