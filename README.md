@@ -38,51 +38,26 @@ If `tomli_w` is missing, the installer aborts before touching any backup with `e
 
 Do not install it as an app, service, Python package, or normal project checkout. Install it by placing the `light-rip` folder in your agent's skills directory, then mount the required `UserPromptSubmit` reminder hook — the skill folder alone is incomplete without the hook. After installing or updating, restart the agent runtime so the hook registers.
 
-### Claude Code
+### Per-runtime install table
 
-Claude Code documentation and community examples use `$HOME/.claude/skills` or `~/.claude/skills`. Clone into the Claude Code skills directory and run the required hook setup from the installed copy:
+Clone the repo into the skills dir above, then run the install command
+from inside the clone.
 
-```bash
-mkdir -p "$HOME/.claude/skills"
-git clone https://github.com/x1han/light-rip "$HOME/.claude/skills/light-rip"
-cd "$HOME/.claude/skills/light-rip"
-python hooks/install_hook_based_agent.py --runtime claude
-```
+| Runtime  | Skills dir                       | Install command                                                       |
+|----------|----------------------------------|-----------------------------------------------------------------------|
+| Claude   | `~/.claude/skills/light-rip`     | `python hooks/install_hook_based_agent.py install --runtime claude`   |
+| Codex    | `$CODEX_HOME/skills/light-rip`   | `python hooks/install_hook_based_agent.py install --runtime codex`    |
+| ZCode    | clone anywhere                   | `python hooks/install_hook_based_agent.py install --runtime zcode`    |
+| Other    | clone anywhere                   | `python hooks/install_general_agent_hook.py`                          |
 
-### Codex
-
-If `CODEX_HOME` is unset, Codex normally uses `$HOME/.codex`. Clone into the Codex skills directory and run the required hook setup from the installed copy:
-
-```bash
-CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-mkdir -p "$CODEX_HOME/skills"
-git clone https://github.com/x1han/light-rip "$CODEX_HOME/skills/light-rip"
-cd "$CODEX_HOME/skills/light-rip"
-python hooks/install_hook_based_agent.py --runtime codex
-```
-
-### Other agents (OpenCode / ZCode / anything else)
-
-For any agent runtime that is not Claude Code or Codex, use the **general installer**. It does **not** write any files itself — instead it prints a structured prompt that describes how to install the Light RIP reminder. Feed that prompt to the agent (or to yourself in a chat); the agent then inspects its own runtime and installs by analogy.
-
-```bash
-git clone https://github.com/x1han/light-rip
-cd light-rip
-python hooks/install_general_agent_hook.py
-```
-
-The installer takes **no agent name on the command line** — there are too many agent runtimes to enumerate, and the list would go stale immediately. The printed prompt works for any runtime and uses two worked examples as anchors:
-
-  1. **Instructions** — if the runtime reads a list of context files
-     (OpenCode's `instructions` field, …), the agent appends a path
-     pointing to `reminder.md` and restarts the runtime. **Preferred.**
-  2. **Hook** — if the runtime has a `UserPromptSubmit` hook layer
-     (ZCode, …), the agent writes the hook entry itself or runs the
-     matching dedicated installer.
-
-Other agent runtimes install by analogy to these two paths. See
-[Verify the install](#verify-the-install) below for how to confirm
-the install landed, regardless of which path was taken.
+For Claude Code and Codex the install command writes the runtime's
+config file. For ZCode the install command writes
+`~/.zcode/cli/config.json`. For "Other" (OpenCode, unknown agents,
+…), the general installer does **not** write any files itself —
+instead it prints a structured prompt that the receiving agent (or
+you, in chat) executes by inspecting its own runtime and installing
+by analogy to the prompt's two worked examples (instructions path
+and hook path).
 
 ### Verify the install
 
