@@ -273,3 +273,99 @@ mention the three `--runtime` choices.
   parse-before-backup + idempotent-reinstall invariant on
   `config.toml`, and adds a "ZCode detector" subsection explaining
   the PEP 394/397 launcher predicate.
+
+### Installer & doc simplification
+
+A 8-commit refactor series focused on reducing surface area, removing
+dead code, and replacing the standalone smoke harness with a
+first-party `--self-test` subcommand.
+
+#### Unified installer: argparse subcommands + `--self-test` (`c1ea776`)
+
+The unified installer (`install_hook_based_agent.py`) restructured
+into two argparse subparsers:
+
+  - `install --runtime {claude,codex,zcode}` — the production install
+    path (unchanged behaviour; old top-level `--runtime <name>` is no
+    longer accepted, subcommand is required).
+  - `self-test` — in-process P0-contract regression covering
+    `installer_common` helpers, parse-before-backup, backup
+    collision, PR-D Codex TOML byte-equal preservation, PEP 394/397
+    launcher predicate (positives + negatives), ZCode detector edge
+    cases, cross-runtime flag rejection, and install+verify
+    round-trip for all three runtimes.
+
+Standalone `smoke_fix_batch.py` (797 lines, 76 assertions) deleted;
+its contracts are now enforced by `self-test`. Initial `--self-test`
+passes 52/52.
+
+Also in this commit: dropped the `--no-enable-feature` flag (the
+Codex `[features] hooks = true` write is now unconditional), since
+the only consumer was its own cross-runtime rejection test. T-UNI-3
+replaced by a `--hooks-file --runtime claude` rejection case.
+
+#### `_validate_args` compressed 91 → ~50 lines (`c096406`)
+
+Per-runtime flag rejection paths collapsed via a `_reject(flag,
+runtime, hint)` helper + module-level hint constants. Envelope wire
+shape unchanged; only the source shrinks.
+
+#### Docs: dead ZCode worked-example removed (`770008a`)
+
+`install_general_agent_hook.py` no longer carries the ZCode install
+analogy walkthrough — `--runtime zcode` does the same thing in one
+command. OpenCode worked-example retained; "by analogy" structure
+intact for any other hook-based runtime.
+
+#### Docs: README install sections collapsed to a table (`493f29e`)
+
+The three per-runtime install blocks (Claude Code / Codex / Other)
+in `README.md` collapsed to a single 3-row table covering skills
+dir + install command. Skills-dir conventions and `CODEX_HOME`
+handling preserved in the table cells.
+
+#### `--format zcode` deprecated; installer writes `--format harness` (`74c82e8`)
+
+The reminder script's ZCode adapter is kept for back-compat with
+installs that baked `--format zcode` into their `~/.zcode/cli/
+config.json` args array, but the unified installer no longer
+generates that flag. New ZCode installs write `--format harness`
+(the broader envelope that ZCode also parses via its generic hook
+layer). Docstring + argparse help text marked `zcode` as deprecated.
+
+#### Docs: SKILL.md "Required Reminder Hook" trimmed (`1d777ff`)
+
+The "Required Reminder Hook" section + per-runtime install blocks
+deleted (duplicated SKILL.md lines 14-16). "Common Mistakes"
+preserved — it's the anti-pattern complement to "Completion
+Criteria" and has no other home.
+
+#### Docs: SKILL.md install commands updated to subcommand form (`a2a419a`)
+
+Follow-up to `c1ea776`: SKILL.md lines 14-16 still showed the
+pre-subparser form. Fixed to `install --runtime <name>`.
+
+#### Fix: ZCode install+verify round-trip (`9a60020`)
+
+Closed a pre-existing bug present since the unification commit
+(`0af968c`): the installer's ZCode branch wrote entries flat
+(`{type, command, args, timeoutMs}`) directly under
+`events.UserPromptSubmit[]`, while `verify_install.check_zcode`
+expected wrapper groups `{matcher?, hooks: [<entry>]}`. The mismatch
+silently produced `match_count: 0` from the verifier on every ZCode
+install despite the installer reporting success — the pre-existing
+smoke test missed it because T-UNI-1/2 inspected JSON directly,
+never via the verifier.
+
+Fix:
+
+  - `install_zcode` wraps each new entry in `{"hooks": [new_entry]}`
+    per the ZCode schema.
+  - `_is_our_zcode_entry` accepts both wrapper and legacy flat
+    shapes so re-installs clean up old flat entries instead of
+    leaving dead weight.
+  - Self-test gains `_self_test_install_verify_roundtrip` that
+    closes the loop for all three runtimes — installer writes
+    → `check_<runtime>` returns `installed=True, match_count=1`.
+
+Self-test now passes 63/63 (52 prior + 11 round-trip assertions).
