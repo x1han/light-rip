@@ -10,9 +10,6 @@ each supported agent runtime expects from a UserPromptSubmit hook:
               documented `additionalContext` field; extras like
               `continue` / `suppressOutput` / `hookSpecificOutput` are
               dropped by ZCode's strict validator.
-  - mavis     (Mavis) — rewrite the `prompt` field, prepending the
-              reminder above a separator so the agent still sees the
-              original user text.
 
 The reminder file is the single source of truth. Each runtime has a
 thin installer that registers this script as its UserPromptSubmit hook
@@ -68,11 +65,12 @@ def load_reminder() -> str:
 def _original_prompt(payload: dict) -> str:
     """Return the user's prompt text from a runtime payload, defensively.
 
-    The harness/zcode adapters do not read this; only mavis does. But
-    `load_payload()` may legitimately return non-dict values when the
-    runtime passes a list, string, or other JSON top-level. Guard
-    against both shapes (non-dict payload, non-dict `input` field) so
-    a malformed runtime envelope does not crash the hook.
+    Currently no adapter reads this (harness/zcode inject via
+    `additionalContext`), but `load_payload()` may legitimately return
+    non-dict values when the runtime passes a list, string, or other
+    JSON top-level. Guard against both shapes (non-dict payload,
+    non-dict `input` field) so a malformed runtime envelope does not
+    crash the hook.
     """
     if not isinstance(payload, dict):
         return ""
@@ -93,23 +91,6 @@ def _format_harness(payload: dict, reminder: str) -> dict:
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",
             "additionalContext": reminder,
-        },
-    }
-
-
-def _format_mavis(payload: dict, reminder: str) -> dict:
-    """Mavis style — the only injection point is the rewritten `prompt`."""
-    original = _original_prompt(payload)
-    rewritten = (
-        f"{reminder.rstrip()}\n\n---\n\nUser prompt follows:\n\n{original}"
-        if original
-        else reminder
-    )
-    return {
-        "prompt": rewritten,
-        "metadata": {
-            "light_rip": True,
-            "reminder_event": "UserPromptSubmit",
         },
     }
 
@@ -135,7 +116,6 @@ def _format_zcode(payload: dict, reminder: str) -> dict:
 # Dispatch table. New runtimes plug in here.
 FORMATS: dict[str, Callable[[dict, str], dict]] = {
     "harness": _format_harness,
-    "mavis": _format_mavis,
     "zcode": _format_zcode,
 }
 
