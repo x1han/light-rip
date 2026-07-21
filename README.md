@@ -23,7 +23,7 @@ P0/P1 findings from any reviewer or verifier pass block completion. The main ses
 
 ## Dependencies
 
-The Codex branch of the unified installer (`hooks/install_hook_based_agent.py --runtime codex`) needs a TOML library at runtime to read and rewrite `~/.codex/config.toml` safely:
+The Codex branch of the unified installer (`hooks/install_hook_based_agent.py install --runtime codex`) needs a TOML library at runtime to read and rewrite `~/.codex/config.toml` safely:
 
   - `tomllib` — stdlib on Python 3.11+.
   - `tomli` — backport for Python 3.10 and earlier.
@@ -107,7 +107,7 @@ content shows up in the agent's context.
 
 The unified installer calls `verify_install.py` automatically at the
 end, so the same two checks run as part of
-`python hooks/install_hook_based_agent.py --runtime claude|codex|zcode`.
+`python hooks/install_hook_based_agent.py install --runtime claude|codex|zcode`.
 
 Exit codes:
 
@@ -149,7 +149,7 @@ the reminder script.
 
 #### Backups and atomic writes
 
-The unified installer (`install_hook_based_agent.py --runtime claude|codex|zcode`)
+The unified installer (`install_hook_based_agent.py install --runtime claude|codex|zcode`)
 backs up any config file it touches to
 `<path>.bak-YYYY-MM-DD` (UTC) before writing. A same-day backup
 collision aborts with `error=backup_collision`; pass
