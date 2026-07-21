@@ -59,6 +59,10 @@ def upsert(settings: dict, group: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Install the Light RIP reminder as a Claude Code UserPromptSubmit hook.")
     parser.add_argument("--settings-file", type=Path, default=default_settings_path())
+    parser.add_argument("--strict-verify", action="store_true",
+                        help="Exit with the verifier's code if verify_install.py "
+                             "reports a problem. Default OFF for backward "
+                             "compat; will flip to ON in a future release.")
     args = parser.parse_args()
 
     settings_path = args.settings_file.expanduser().resolve()
@@ -71,25 +75,39 @@ def main() -> int:
     print(json.dumps({"settings_path": str(settings_path), "hook": NAMESPACE}, ensure_ascii=True))
     sys.stdout.flush()
 
-    # Always run the runtime-agnostic verifier after install. Its
-    # result is informational — the install itself has already
-    # landed; verify only checks that reminder.md is readable and
-    # the reminder script can spawn successfully. It does not gate
-    # the install exit code, because the install can be valid even
-    # if a transient runtime environment prevents the verifier from
-    # finding reminder.md (e.g. running from a moved worktree).
+    # Always run the runtime-agnostic verifier after install. With
+    # --strict-verify, the verifier's exit code propagates to this
+    # installer's exit code. Without it (default), verify is
+    # informational only — backward compat for users who may have
+    # transient runtime environments where the verifier cannot reach
+    # reminder.md (e.g. running from a moved worktree).
     verify_path = Path(__file__).resolve().parent / "verify_install.py"
-    if verify_path.is_file():
-        print("\n--- verify_install.py ---")
-        sys.stdout.flush()
-        try:
-            subprocess.run(
-                [sys.executable, str(verify_path)],
-                check=False,
-            )
-        except OSError as exc:
-            print(f"verify failed to launch: {exc}", file=sys.stderr)
-
+    if not verify_path.is_file():
+        return 0
+    print("\n--- verify_install.py ---")
+    sys.stdout.flush()
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(verify_path),
+             "--runtime", "claude",
+             "--claude-settings", str(settings_path),
+             "--json"],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError as exc:
+        print(f"verify failed to launch: {exc}", file=sys.stderr)
+        return 1 if args.strict_verify else 0
+    if completed.stdout:
+        # human-readable on top, JSON tail from the verifier
+        print(completed.stdout, end="")
+    if completed.stderr:
+        print(completed.stderr, end="", file=sys.stderr)
+    if completed.returncode != 0:
+        msg = (f"verify_install.py reported FAIL "
+               f"(exit {completed.returncode}); "
+               f"install at {settings_path} may be incomplete")
+        print(msg, file=sys.stderr)
+        return completed.returncode if args.strict_verify else 0
     return 0
 
 
