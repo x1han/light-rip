@@ -1,0 +1,23 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Build / dist (future-proof)
+build/
+dist/
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test residue from manual hook smoke runs at repo root. These
+# were captured when running `light_rip_reminder.py` with explicit
+# redirection during local debugging; not part of the skill.
+/stderr.log
+/stderr.txt
+/stdout.log
+/stdout.txt

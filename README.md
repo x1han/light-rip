@@ -110,6 +110,17 @@ prove the runtime actually invokes the hook on real prompts — that
 requires observing one real prompt and confirming the reminder
 content shows up in the agent's context.
 
+Pass `--runtime <name>` (`claude`, `codex`, `zcode`, or `all`) to
+scope the verifier to a single runtime. The default `--runtime all`
+is lenient: a runtime config file that does not yet exist contributes
+0 (the user has not chosen that runtime). In `--runtime <name>`
+strict mode, a missing config for the named runtime contributes 1
+to the exit code. The verifier covers **Claude Code, Codex, and
+ZCode** explicitly. Other runtimes (OpenCode, …) install via the
+general prompt and are not actively verified here — re-read the
+prompt's worked examples and confirm the script-side smoke checks
+above pass after install.
+
 #### Breaking change vs older releases
 
 Earlier versions of `install_general_agent_hook.py` auto-installed
@@ -124,6 +135,26 @@ the chosen install path is a `sh`-backed hook and `sh` is missing
 from PATH, the receiving agent must add it manually before invoking
 the reminder script.
 
+#### Backups and atomic writes
+
+The dedicated installers (`install_claude_hook.py`,
+`install_codex_hook.py`) back up any config file they touch to
+`<path>.bak-YYYY-MM-DD` (UTC) before writing. A same-day backup
+collision aborts with `error=backup_collision`; pass
+`--force-backup` to overwrite or rename the existing backup. The
+installer parses the source first and refuses to back up a corrupt
+config (`error=invalid_runtime_config`) — a recovery snapshot from
+known-bad content would later be overwritten by `--force-backup`
+into a "good" backup that is actually corrupt.
+
+Writes are atomic: text is staged in a sibling temp file, fsynced,
+then renamed over the destination via `os.replace`. A crash
+mid-write leaves the previous config intact instead of producing a
+half-written JSON file. Filesystem-level failures (permission
+denied, locked file, …) surface as `error=permission_or_io_error`,
+distinct from `backup_collision` so the user can tell "you have a
+choice" from "I literally cannot write here".
+
 ## Updating
 
 `cd` into the installed `light-rip` folder, run `git pull`, then
@@ -135,7 +166,8 @@ re-run the installer that matches your agent (see Installation).
 - `SKILL.md` — the skill instructions.
 - `reminder.md` — the context injected by the hook. Runtime-neutral.
 - `hooks/light_rip_reminder.py` — the shared hook command. The default `--format harness` emits a `hookSpecificOutput.additionalContext` envelope that most runtimes accept; an alternative format is also shipped for runtimes that rewrite the prompt instead.
-- `hooks/install_codex_hook.py` — Codex-specific installer (auto-writes `~/.codex/hooks.json`).
+- `hooks/installer_common.py` — shared helpers for the dedicated installers: date-stamped backups (`<path>.bak-YYYY-MM-DD` UTC, abort-on-collision), atomic writes (temp + fsync + rename), safe JSON load, and dedup-all upsert.
+- `hooks/install_codex_hook.py` — Codex-specific installer (auto-writes `~/.codex/hooks.json` and enables `[features] hooks = true` in `~/.codex/config.toml`).
 - `hooks/install_claude_hook.py` — Claude Code-specific installer (auto-writes `~/.claude/settings.json`).
 - `hooks/install_general_agent_hook.py` — generic installer for any other agent runtime. Prints an install prompt; does not write files itself.
-- `hooks/verify_install.py` — verifies that an install (Codex / Claude / ZCode / OpenCode / generic) landed correctly.
+- `hooks/verify_install.py` — verifies that an install landed correctly. Actively checks Claude Code, Codex, and ZCode; other runtimes install via the general prompt and are not actively verified here.
