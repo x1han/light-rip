@@ -23,7 +23,7 @@ P0/P1 findings from any reviewer or verifier pass block completion. The main ses
 
 ## Dependencies
 
-The Codex branch of the unified installer (`hooks/install_hook_based_agent.py install --runtime codex`) needs a TOML library at runtime to read and rewrite `~/.codex/config.toml` safely:
+The Codex branch of the unified installer (`hooks/install_hook_based_harness.py install --runtime codex`) needs a TOML library at runtime to read and rewrite `~/.codex/config.toml` safely:
 
   - `tomllib` — stdlib on Python 3.11+.
   - `tomli` — backport for Python 3.10 and earlier.
@@ -45,10 +45,10 @@ from inside the clone.
 
 | Runtime  | Skills dir                       | Install command                                                       |
 |----------|----------------------------------|-----------------------------------------------------------------------|
-| Claude   | `~/.claude/skills/light-rip`     | `python hooks/install_hook_based_agent.py install --runtime claude`   |
-| Codex    | `$CODEX_HOME/skills/light-rip`   | `python hooks/install_hook_based_agent.py install --runtime codex`    |
-| ZCode    | clone anywhere                   | `python hooks/install_hook_based_agent.py install --runtime zcode`    |
-| Other    | clone anywhere                   | `python hooks/install_general_agent_hook.py`                          |
+| Claude   | `~/.claude/skills/light-rip`     | `python hooks/install_hook_based_harness.py install --runtime claude`   |
+| Codex    | `$CODEX_HOME/skills/light-rip`   | `python hooks/install_hook_based_harness.py install --runtime codex`    |
+| ZCode    | clone anywhere                   | `python hooks/install_hook_based_harness.py install --runtime zcode`    |
+| Other    | clone anywhere                   | `python hooks/install_general_harness.py`                          |
 
 For Claude Code and Codex the install command writes the runtime's
 config file. For ZCode the install command writes
@@ -82,7 +82,7 @@ content shows up in the agent's context.
 
 The unified installer calls `verify_install.py` automatically at the
 end, so the same two checks run as part of
-`python hooks/install_hook_based_agent.py install --runtime claude|codex|zcode`.
+`python hooks/install_hook_based_harness.py install --runtime claude|codex|zcode`.
 
 Exit codes:
 
@@ -110,7 +110,7 @@ above pass after install.
 
 #### Breaking change vs older releases
 
-Earlier versions of `install_general_agent_hook.py` auto-installed
+Earlier versions of `install_general_harness.py` auto-installed
 for one specific runtime and accepted `--data-dir`, `--hooks-dir`,
 `--format`, `--no-path-fix`, and `--agent`. All those flags are
 removed. The new design is runtime-agnostic — the agent that
@@ -124,7 +124,7 @@ the reminder script.
 
 #### Backups and atomic writes
 
-The unified installer (`install_hook_based_agent.py install --runtime claude|codex|zcode`)
+The unified installer (`install_hook_based_harness.py install --runtime claude|codex|zcode`)
 backs up any config file it touches to
 `<path>.bak-YYYY-MM-DD` (UTC) before writing. A same-day backup
 collision aborts with `error=backup_collision`; pass
@@ -190,6 +190,6 @@ re-run the installer that matches your agent (see Installation).
 - `reminder.md` — the context injected by the hook. Runtime-neutral.
 - `hooks/light_rip_reminder.py` — the shared hook command. The default `--format harness` emits a `hookSpecificOutput.additionalContext` envelope that most runtimes accept; an alternative format is also shipped for runtimes that rewrite the prompt instead.
 - `hooks/installer_common.py` — shared helpers for the dedicated installers: date-stamped backups (`<path>.bak-YYYY-MM-DD` UTC, abort-on-collision), atomic writes (temp + fsync + rename), safe JSON load, and dedup-all upsert.
-- `hooks/install_hook_based_agent.py` — unified installer for hook-based agent runtimes, with two argparse subcommands: `install --runtime {claude,codex,zcode}` (writes `~/.claude/settings.json`, `~/.codex/hooks.json` + `~/.codex/config.toml`, or `~/.zcode/cli/config.json` respectively) and `self-test` (in-process regression covering the P0 safety contracts: parse-before-backup, backup collision, TOML byte-equal preservation, PEP 394/397 launcher predicate, ZCode detector, cross-runtime flag rejection, install+verify round-trip). Replaces the per-runtime scripts and the standalone `smoke_fix_batch.py` that shipped before.
-- `hooks/install_general_agent_hook.py` — generic installer for any other agent runtime. Prints an install prompt; does not write files itself.
+- `hooks/install_hook_based_harness.py` — unified installer for hook-based agent runtimes, with two argparse subcommands: `install --runtime {claude,codex,zcode}` (writes `~/.claude/settings.json`, `~/.codex/hooks.json` + `~/.codex/config.toml`, or `~/.zcode/cli/config.json` respectively) and `self-test` (in-process regression covering the P0 safety contracts: parse-before-backup, backup collision, TOML byte-equal preservation, PEP 394/397 launcher predicate, ZCode detector, cross-runtime flag rejection, install+verify round-trip). Replaces the per-runtime scripts and the standalone `smoke_fix_batch.py` that shipped before.
+- `hooks/install_general_harness.py` — generic installer for any other agent runtime. Prints an install prompt; does not write files itself.
 - `hooks/verify_install.py` — verifies that an install landed correctly. Actively checks Claude Code, Codex, and ZCode; other runtimes install via the general prompt and are not actively verified here.

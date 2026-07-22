@@ -2,7 +2,7 @@
 """Light RIP general installer — prompt dispatcher.
 
 This script is the universal entry point for installing the Light RIP
-reminder on **any** agent runtime. Unlike `install_hook_based_agent.py`
+reminder on **any** agent runtime. Unlike `install_hook_based_harness.py`
 (which knows the hook schema for Claude Code, Codex, and ZCode), this
 script does **not** write any files and does
 **not** take a `--agent` argument. Its sole job is to print a
@@ -58,7 +58,7 @@ PROMPT_MARKER_END = "[end light-rip-install-prompt]"
 # ---------- path resolution ----------
 
 def skill_root() -> Path:
-    """<skill>/hooks/install_general_agent_hook.py → <skill>."""
+    """<skill>/hooks/install_general_harness.py → <skill>."""
     return Path(__file__).resolve().parents[1]
 
 
@@ -166,7 +166,7 @@ The reminder script contract is the same on every runtime:
     block the prompt.
 
 For a runtime whose hook layer is not yet covered by the dedicated
-installer (`install_hook_based_agent.py install --runtime <name>`),
+installer (`install_hook_based_harness.py install --runtime <name>`),
 inspect the runtime's hook schema in its own docs or loader source.
 Write a matching entry whose command spawns `{reminder_py}` (the
 default `--format harness` works on most runtimes via the
@@ -176,12 +176,12 @@ the matching `--runtime` flag instead of following this path by
 hand.
 
 **Dedicated installers exist for three well-known runtimes**:
-  - Claude Code:  `python {skill}/hooks/install_hook_based_agent.py --runtime claude`
+  - Claude Code:  `python {skill}/hooks/install_hook_based_harness.py --runtime claude`
                   (writes `~/.claude/settings.json` JSON entry).
-  - Codex:        `python {skill}/hooks/install_hook_based_agent.py --runtime codex`
+  - Codex:        `python {skill}/hooks/install_hook_based_harness.py --runtime codex`
                   (writes `~/.codex/hooks.json` JSON entry and enables
                   `[features] hooks = true` in `~/.codex/config.toml`).
-  - ZCode:        `python {skill}/hooks/install_hook_based_agent.py --runtime zcode`
+  - ZCode:        `python {skill}/hooks/install_hook_based_harness.py --runtime zcode`
                   (writes `~/.zcode/cli/config.json` process entry).
 If your runtime IS one of these three, run the unified installer with
 the matching `--runtime` flag instead of following the ZCode analogy.

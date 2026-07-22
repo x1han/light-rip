@@ -5,7 +5,7 @@ Codex, ...) shares:
 
   * Pre-write backup with a date-stamped suffix
     ``<path>.bak-YYYY-MM-DD`` (UTC date). This matches the convention
-    documented in ``install_general_agent_hook.py`` and gives users a
+    documented in ``install_general_harness.py`` and gives users a
     one-command manual restore path.
 
   * Crash-safe writes: text is staged in a temp file in the target

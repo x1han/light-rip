@@ -3,7 +3,7 @@
 
 This unified installer replaces the three prior per-runtime scripts
 (``install_claude_hook.py``, ``install_codex_hook.py``, plus the ZCode
-worked example formerly living inside ``install_general_agent_hook.py``)
+worked example formerly living inside ``install_general_harness.py``)
 with a single dispatcher that takes ``--runtime {claude,codex,zcode}``.
 
 Per-runtime behavior:
@@ -994,7 +994,7 @@ def _self_test_parse_before_backup(t: _SelfTest, hooks_dir: Path) -> None:
         corrupt.write_text("{ this is not valid json", encoding="utf-8")
         baks_before = list(Path(td).glob("settings.json.bak-*"))
         rc, _, _, j = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "claude",
              "--settings-file", str(corrupt),
@@ -1021,7 +1021,7 @@ def _self_test_backup_collision(t: _SelfTest, hooks_dir: Path) -> None:
         )
         # First install creates a backup.
         rc1, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "claude",
              "--settings-file", str(col_target),
@@ -1034,7 +1034,7 @@ def _self_test_backup_collision(t: _SelfTest, hooks_dir: Path) -> None:
                       f"got {len(baks)}")
         # Second install without --force-backup -> collision.
         rc2, _, _, j2 = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "claude",
              "--settings-file", str(col_target),
@@ -1074,7 +1074,7 @@ def _self_test_codex_toml_byte_equal(t: _SelfTest, hooks_dir: Path) -> None:
                           encoding="utf-8")
         # First install (writes hooks.json + already-true config.toml = no-op).
         rc1, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "codex",
              "--hooks-file", str(hooks1),
@@ -1095,7 +1095,7 @@ def _self_test_codex_toml_byte_equal(t: _SelfTest, hooks_dir: Path) -> None:
         # install; what we care about is that config.toml stays byte-
         # equal and produces no new backup of its own.)
         rc2, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "codex",
              "--hooks-file", str(hooks1),
@@ -1128,7 +1128,7 @@ def _self_test_codex_toml_byte_equal(t: _SelfTest, hooks_dir: Path) -> None:
         hooks2.write_text(json.dumps({"hooks": {"UserPromptSubmit": []}}),
                           encoding="utf-8")
         rc3, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "codex",
              "--hooks-file", str(hooks2),
@@ -1169,7 +1169,7 @@ def _self_test_codex_toml_byte_equal(t: _SelfTest, hooks_dir: Path) -> None:
         )
         # First install on the quoted-string config: should be no-op.
         rc4, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "codex",
              "--hooks-file", str(hooks4),
@@ -1189,7 +1189,7 @@ def _self_test_codex_toml_byte_equal(t: _SelfTest, hooks_dir: Path) -> None:
         # here is config.toml byte-equality.)
         original_quoted = cfg4.read_text(encoding="utf-8-sig")
         rc5, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "codex",
              "--hooks-file", str(hooks4),
@@ -1324,7 +1324,7 @@ def _self_test_zcode_detector(t: _SelfTest, hooks_dir: Path) -> None:
         with tempfile.TemporaryDirectory(prefix="light-rip-selftest-zod-") as ztd:
             zcfg = Path(ztd) / "config.json"
             rc, _, _, _ = _run_subprocess(
-                [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+                [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
                  "install",
                  "--runtime", "zcode",
                  "--zcode-config", str(zcfg),
@@ -1372,7 +1372,7 @@ def _self_test_cross_runtime_flag(t: _SelfTest, hooks_dir: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="light-rip-selftest-flag-") as td:
         settings = Path(td) / "settings.json"
         rc, _, _, j = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install",
              "--runtime", "claude",
              "--hooks-file", str(settings),
@@ -1414,7 +1414,7 @@ def _self_test_install_verify_roundtrip(t: _SelfTest, hooks_dir: Path) -> None:
         # --- Claude round-trip ---
         claude_settings = td / "claude.json"
         rc, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install", "--runtime", "claude",
              "--settings-file", str(claude_settings),
              "--no-strict-verify"],
@@ -1430,7 +1430,7 @@ def _self_test_install_verify_roundtrip(t: _SelfTest, hooks_dir: Path) -> None:
         codex_hooks = td / "codex-hooks.json"
         codex_config = td / "codex-config.toml"
         rc, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install", "--runtime", "codex",
              "--hooks-file", str(codex_hooks),
              "--config-file", str(codex_config),
@@ -1446,7 +1446,7 @@ def _self_test_install_verify_roundtrip(t: _SelfTest, hooks_dir: Path) -> None:
         # --- ZCode round-trip (this is the bug that surfaced pre-fix) ---
         zcode_cfg = td / "zcode.json"
         rc, _, _, _ = _run_subprocess(
-            [sys.executable, str(hooks_dir / "install_hook_based_agent.py"),
+            [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
              "install", "--runtime", "zcode",
              "--zcode-config", str(zcode_cfg),
              "--no-strict-verify"],
@@ -1606,10 +1606,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # action defaults to None when no subcommand is given; in that
     # case argparse should already have errored. We keep a defensive
-    # guard so ``python install_hook_based_agent.py --help`` works
+    # guard so ``python install_hook_based_harness.py --help`` works
     # but a bare invocation is a usage error.
     if args.action is None or args.action == "install":
-        # When called bare as ``install_hook_based_agent.py --runtime ...``
+        # When called bare as ``install_hook_based_harness.py --runtime ...``
         # (no subcommand), argparse assigns None; for back-compat we
         # accept that path as an implicit install.
         if not hasattr(args, "runtime"):

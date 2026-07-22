@@ -66,7 +66,7 @@ from installer_common import NAMESPACE, is_our_namespace  # noqa: E402
 # >= 3.11, tomli is the backport. If neither is available we fall
 # back to a regex line scan that mirrors the (now-removed) install
 # path so verification still works on systems with neither library;
-# the install_hook_based_agent.py installer (Codex branch) itself now
+# the install_hook_based_harness.py installer (Codex branch) itself now
 # requires tomli_w to write config.toml safely, so a missing tomli_w
 # only blocks install, not verify.
 try:
@@ -317,7 +317,7 @@ def _codex_feature_enabled(config_path: Path) -> bool | str:
             return True
         return False
     # Fallback: regex-based line scan mirroring the
-    # install_hook_based_agent.py Codex branch when neither tomllib
+    # install_hook_based_harness.py Codex branch when neither tomllib
     # nor tomli is available.
     try:
         text = config_path.read_text(encoding="utf-8-sig")
@@ -595,9 +595,9 @@ def render_human(script_checks: list[dict], runtime_checks: dict,
             lines.append(f"         config.toml — {ct.get('detail', '')}")
     if not any_probed:
         lines.append(f"  (no runtime config files found at default locations — "
-                     "install with install_hook_based_agent.py install "
+                     "install with install_hook_based_harness.py install "
                      "--runtime claude|codex|zcode, or follow the OpenCode worked "
-                     "example printed by install_general_agent_hook.py)")
+                     "example printed by install_general_harness.py)")
     return "\n".join(lines) + "\n"
 
 
