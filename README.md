@@ -1,3 +1,5 @@
+
+
 # 🪦 Light RIP
 
 Light RIP is an agent skill package, not a software application.
@@ -40,7 +42,7 @@ Do not install it as an app, service, Python package, or normal project checkout
 
 ### Per-runtime install table
 
-Clone the repo into the skills dir above, then run the install command
+Clone the repo into the skills dir shown (or anywhere for ZCode/Other), then run the install command
 from inside the clone.
 
 | Runtime  | Skills dir                       | Install command                                                       |
