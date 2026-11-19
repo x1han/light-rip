@@ -1,4 +1,4 @@
-# 🪦 Light RIP
+![Light RIP](assets/light-rip-workflow.jpg)
 
 Light RIP is an agent skill package, not a software application.
 
