@@ -35,7 +35,7 @@ P0/P1 findings from any reviewer or verifier pass block completion. The main ses
 Copy and paste this prompt into your coding agent:
 
 ```text
-Install the Light RIP skill from https://github.com/x1han/light-rip: first detect which agent harness you are running in and clone the repo into that harness's skills directory (~/.claude/skills/light-rip for Claude Code, $CODEX_HOME/skills/light-rip for Codex, ~/.gemini/config/skills/light-rip for Antigravity, or your harness's skills folder). If you are Claude Code, Codex, or Antigravity, run `python hooks/install_hook_based_harness.py install --runtime <claude|codex|antigravity>` from inside the cloned folder and verify with `python hooks/verify_install.py --runtime <runtime>`. If you are any other harness (such as ZCode, OpenCode, Cursor, etc.), first inspect your own harness's hook or prompt-injection mechanism, study `hooks/install_hook_based_harness.py` and `hooks/light_rip_reminder.py` to see how Claude Code, Codex, and Antigravity are adapted, propose the cleanest adaptation plan for your harness, and ask me for confirmation before modifying any config files.
+Install the Light RIP skill from https://github.com/x1han/light-rip: first detect which agent harness you are running in and clone the repo into that harness's skills directory (~/.claude/skills/light-rip for Claude Code, ~/.codex/skills/light-rip for Codex, ~/.gemini/config/skills/light-rip for Antigravity, or your harness's skills folder). If you are Claude Code, Codex, or Antigravity, run `python hooks/install_hook_based_harness.py install --runtime <claude|codex|antigravity>` from inside the cloned folder and verify with `python hooks/verify_install.py --runtime <runtime>`. If you are any other harness (such as ZCode, OpenCode, Cursor, etc.), first inspect your own harness's hook or prompt-injection mechanism, study `hooks/install_hook_based_harness.py` and `hooks/light_rip_reminder.py` to see how Claude Code, Codex, and Antigravity are adapted, propose the cleanest adaptation plan for your harness, and ask me for confirmation before modifying any config files.
 ```
 
 ### Supported harnesses
@@ -43,7 +43,7 @@ Install the Light RIP skill from https://github.com/x1han/light-rip: first detec
 | Harness | Skills dir | Hook mechanism | Installer |
 | --- | --- | --- | --- |
 | **Claude Code** | `~/.claude/skills/light-rip` | `UserPromptSubmit` (`~/.claude/settings.json`) | `python hooks/install_hook_based_harness.py install --runtime claude` |
-| **Codex** | `$CODEX_HOME/skills/light-rip` | `UserPromptSubmit` (`~/.codex/hooks.json` + `~/.codex/config.toml`) | `python hooks/install_hook_based_harness.py install --runtime codex` |
+| **Codex** | `~/.codex/skills/light-rip` | `UserPromptSubmit` (`~/.codex/hooks.json` + `~/.codex/config.toml`) | `python hooks/install_hook_based_harness.py install --runtime codex` |
 | **Antigravity** | `~/.gemini/config/skills/light-rip` | `PreInvocation` (`~/.gemini/config/hooks.json`) | `python hooks/install_hook_based_harness.py install --runtime antigravity` |
 | **Other** (ZCode, OpenCode, …) | harness skills dir | Inspected per harness | `python hooks/install_general_harness.py` (evaluates & asks before writing) |
 

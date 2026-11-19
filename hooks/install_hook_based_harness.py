@@ -64,7 +64,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import tempfile
@@ -103,16 +102,12 @@ def default_claude_settings() -> Path:
     return Path.home() / ".claude" / "settings.json"
 
 
-def codex_home() -> Path:
-    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-
-
 def default_codex_hooks() -> Path:
-    return codex_home() / "hooks.json"
+    return Path.home() / ".codex" / "hooks.json"
 
 
 def default_codex_config() -> Path:
-    return codex_home() / "config.toml"
+    return Path.home() / ".codex" / "config.toml"
 
 
 def default_antigravity_hooks() -> Path:
