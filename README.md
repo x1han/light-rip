@@ -1,7 +1,8 @@
 <div align="center">
   <img src="assets/light-rip-logo.jpg" alt="Light RIP" width="180" />
-  <h1><strong>Light RIP</strong></h1>
+  <h3><strong>Light RIP</strong></h3>
   <p>Plan · Implement · Review</p>
+  <hr />
   <br /><br />
   <img src="assets/light-rip-workflow.png" alt="" />
   <br /><br />
