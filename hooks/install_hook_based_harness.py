@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
-"""Install the Light RIP reminder as a UserPromptSubmit hook on a hook-based agent runtime.
+"""Install the Light RIP reminder hook on supported agent runtimes.
 
-This unified installer replaces the three prior per-runtime scripts
-(``install_claude_hook.py``, ``install_codex_hook.py``, plus the ZCode
-worked example formerly living inside ``install_general_harness.py``)
-with a single dispatcher that takes ``--runtime {claude,codex,zcode}``.
+Single dispatcher taking ``--runtime {claude,codex,antigravity}``.
 
 Per-runtime behavior:
 
-  * ``claude``  — merges one entry into ``~/.claude/settings.json`` under
-                  ``hooks.UserPromptSubmit`` (legacy JSON hooks schema).
-  * ``codex``   — writes ``~/.codex/hooks.json`` (legacy JSON hooks
-                  schema) AND enables ``[features] hooks = true`` in
-                  ``~/.codex/config.toml`` (TOML, via ``tomllib`` +
-                  ``tomli_w``; see ``Dependencies`` below).
-  * ``zcode``   — merges one entry into ``~/.zcode/cli/config.json``
-                  under ``hooks.events.UserPromptSubmit[]`` (ZCode
-                  process-hook schema). First-class installer for a
-                  runtime that previously only had a worked example
-                  prompt.
+  * ``claude``      — merges one entry into ``~/.claude/settings.json``
+                      under ``hooks.UserPromptSubmit`` (JSON hooks
+                      schema).
+  * ``codex``       — writes ``~/.codex/hooks.json`` (JSON hooks schema)
+                      AND enables ``[features] hooks = true`` in
+                      ``~/.codex/config.toml`` (TOML, via ``tomllib`` +
+                      ``tomli_w``; see ``Dependencies`` below).
+  * ``antigravity`` — merges the ``light-rip-reminder`` entry into
+                      ``~/.gemini/config/hooks.json`` under
+                      ``PreInvocation`` (Antigravity lifecycle hooks
+                      schema, invoking ``light_rip_reminder.py --format
+                      antigravity``).
 
 All three branches share the same invariant set:
 
@@ -35,14 +33,14 @@ All three branches share the same invariant set:
      ``permission_or_io_error`` so the caller can distinguish "you
      have a choice (force or rename)" from "I literally cannot
      write here".
-  3. Idempotent upsert. Re-install on an already-correct config is
-     byte-equal and creates NO backup (PR-D invariant).
+  3. Idempotent upsert. Re-install on an already-correct config
+     leaves existing entries intact and avoids unnecessary rewrites.
   4. Atomic write via ``atomic_write_json`` (temp file in the
      target directory, fsync, ``os.replace`` over destination).
-  5. Run the runtime-agnostic ``verify_install.py`` as the final
-     step. Under ``--strict-verify`` (default), missing verifier
-     or non-zero verifier exit codes propagate. Under
-     ``--no-strict-verify``, the verifier is informational only.
+  5. Run ``verify_install.py`` as the final step. Under
+     ``--strict-verify`` (default), missing verifier or non-zero
+     verifier exit codes propagate. Under ``--no-strict-verify``, the
+     verifier is informational only.
 
 Exit codes:
   0 — install + verifier both pass (or verifier passed under
@@ -58,9 +56,9 @@ Dependencies (Codex branch only):
   package required for writing because Python < 3.11 has no stdlib
   TOML writer and ``tomli_w`` is the de-facto choice. Install with:
       pip install tomli-w
-  On Python ≥ 3.11 you also need ``tomllib`` (stdlib — no install
+  On Python >= 3.11 you also need ``tomllib`` (stdlib — no install
   needed) and on older Pythons you need ``tomli`` as the backport.
-  The Claude and ZCode branches need no extra dependencies.
+  The Claude and Antigravity branches need no extra dependencies.
 """
 from __future__ import annotations
 
@@ -117,12 +115,12 @@ def default_codex_config() -> Path:
     return codex_home() / "config.toml"
 
 
-def default_zcode_config() -> Path:
-    return Path.home() / ".zcode" / "cli" / "config.json"
+def default_antigravity_hooks() -> Path:
+    return Path.home() / ".gemini" / "config" / "hooks.json"
 
 
 # ---------------------------------------------------------------------------
-# Hook-group builders (legacy JSON hooks schema for Claude + Codex)
+# Hook-group builders (JSON hooks schema for Claude + Codex + Antigravity)
 # ---------------------------------------------------------------------------
 
 def build_claude_group(python_exe: Path, hook_script: Path) -> dict:
@@ -160,61 +158,18 @@ def build_codex_group(python_exe: Path, hook_script: Path) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# ZCode dedup predicate (process-hook schema, NO metadata.hook_namespace)
-# ---------------------------------------------------------------------------
-
-def _is_our_zcode_entry(entry: object, python_exe: Path, reminder: Path) -> bool:
-    """True iff ``entry`` is a prior Light RIP ZCode install we should dedup.
-
-    Accepts BOTH shapes for backward compatibility with installs
-    written before the wrapper-group canonicalisation:
-
-      * New wrapper shape: ``{"hooks": [<entry>]}`` — what the
-        installer now writes (and what ``verify_install.check_zcode``
-        reads via ``group.get("hooks")``).
-      * Legacy flat shape: ``{"type": "process", "command": ..., "args": [...]}``
-        — what the installer used to write under
-        ``events.UserPromptSubmit[]``. Old installs may still carry
-        one of these on disk; recognising them lets re-installs clean
-        up the stale entry instead of leaving it as dead weight.
-
-    Mirrors the matching criterion in ``verify_install.check_zcode``:
-    the entry MUST be ``type="process"`` (ZCode silently skips other
-    types), its ``command`` MUST resolve to our recorded Python
-    executable, and ``args[0]`` MUST resolve to our recorded reminder
-    script. This is tighter than the verifier (which only checks that
-    ``command`` is a Python launcher and that ``args`` contains the
-    reminder script name) because during install we know the exact
-    paths we just wrote.
-    """
-    if not isinstance(entry, dict):
-        return False
-    # Unwrap wrapper shape; legacy flat shape passes through unchanged.
-    if "hooks" in entry and isinstance(entry.get("hooks"), list):
-        inner = entry["hooks"]
-        if not inner:
-            return False
-        entry = inner[0]
-        if not isinstance(entry, dict):
-            return False
-    if str(entry.get("type", "")) != "process":
-        return False
-    cmd = entry.get("command", "")
-    args = entry.get("args", [])
-    if not isinstance(cmd, str) or not isinstance(args, list):
-        return False
-    try:
-        if Path(cmd).resolve() != python_exe.resolve():
-            return False
-    except OSError:
-        return False
-    if not args:
-        return False
-    try:
-        return Path(str(args[0])).resolve() == reminder.resolve()
-    except OSError:
-        return False
+def build_antigravity_hook(python_exe: Path, hook_script: Path) -> dict:
+    """Build the Antigravity hooks.json entry under top-level key NAMESPACE."""
+    return {
+        "enabled": True,
+        "PreInvocation": [
+            {
+                "type": "command",
+                "command": f"\"{python_exe}\" \"{hook_script}\" --format antigravity",
+                "timeout": 10,
+            }
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -350,17 +305,12 @@ def write_hooks_feature(config_path: Path) -> None:
 # Error envelope helper + flag/runtime mismatch validation
 # ---------------------------------------------------------------------------
 
-# Per-(flag, wrong-runtime) hints, lifted to constants so each
-# _validate_args rejection becomes a single line. Wire shape
-# (envelope keys + stderr JSON) unchanged.
-_HINT_HOOKS_FILE_CLAUDE = "--hooks-file is Codex-only; omit it under --runtime claude"
-_HINT_HOOKS_FILE_ZCODE = "--hooks-file is Codex-only; omit it under --runtime zcode"
-_HINT_CONFIG_FILE_CLAUDE = "--config-file is Codex-only; omit it under --runtime claude"
-_HINT_CONFIG_FILE_ZCODE = "--config-file is Codex-only; omit it under --runtime zcode"
-_HINT_SETTINGS_FILE_CODEX = "--settings-file is Claude-only; omit it under --runtime codex"
-_HINT_SETTINGS_FILE_ZCODE = "--settings-file is Claude-only; omit it under --runtime zcode"
-_HINT_ZCODE_CONFIG_CLAUDE = "--zcode-config is ZCode-only; omit it under --runtime claude"
-_HINT_ZCODE_CONFIG_CODEX = "--zcode-config is ZCode-only; omit it under --runtime codex"
+_FLAG_OWNER = {
+    "hooks_file": ("--hooks-file", "Codex", ("codex",)),
+    "config_file": ("--config-file", "Codex", ("codex",)),
+    "settings_file": ("--settings-file", "Claude", ("claude",)),
+    "antigravity_hooks": ("--antigravity-hooks", "Antigravity", ("antigravity",)),
+}
 
 
 def _emit_error(error: str, *, code: int = 2, **fields) -> int:
@@ -395,35 +345,23 @@ def _validate_args(args: argparse.Namespace) -> int | None:
     defaults are filled in here.
     """
     runtime = args.runtime
+    for attr, (flag, owner_name, allowed) in _FLAG_OWNER.items():
+        if runtime not in allowed and getattr(args, attr, None) is not None:
+            return _reject(
+                flag, runtime,
+                f"{flag} is {owner_name}-only; omit it under --runtime {runtime}",
+            )
     if runtime == "claude":
-        if args.hooks_file is not None:
-            return _reject("--hooks-file", "claude", _HINT_HOOKS_FILE_CLAUDE)
-        if args.config_file is not None:
-            return _reject("--config-file", "claude", _HINT_CONFIG_FILE_CLAUDE)
-        if args.zcode_config is not None:
-            return _reject("--zcode-config", "claude", _HINT_ZCODE_CONFIG_CLAUDE)
         if args.settings_file is None:
             args.settings_file = default_claude_settings()
-        return None
-    if runtime == "codex":
-        if args.settings_file is not None:
-            return _reject("--settings-file", "codex", _HINT_SETTINGS_FILE_CODEX)
-        if args.zcode_config is not None:
-            return _reject("--zcode-config", "codex", _HINT_ZCODE_CONFIG_CODEX)
+    elif runtime == "codex":
         if args.hooks_file is None:
             args.hooks_file = default_codex_hooks()
         if args.config_file is None:
             args.config_file = default_codex_config()
-        return None
-    # runtime == "zcode"
-    if args.settings_file is not None:
-        return _reject("--settings-file", "zcode", _HINT_SETTINGS_FILE_ZCODE)
-    if args.hooks_file is not None:
-        return _reject("--hooks-file", "zcode", _HINT_HOOKS_FILE_ZCODE)
-    if args.config_file is not None:
-        return _reject("--config-file", "zcode", _HINT_CONFIG_FILE_ZCODE)
-    if args.zcode_config is None:
-        args.zcode_config = default_zcode_config()
+    elif runtime == "antigravity":
+        if args.antigravity_hooks is None:
+            args.antigravity_hooks = default_antigravity_hooks()
     return None
 
 
@@ -723,83 +661,33 @@ def install_codex(args: argparse.Namespace) -> int:
     )
 
 
-def install_zcode(args: argparse.Namespace) -> int:
-    """Install the Light RIP reminder into ``~/.zcode/cli/config.json``.
-
-    Unlike the Claude / Codex branches, ZCode has no
-    ``metadata.hook_namespace`` field in its hook entry shape;
-    deduplication is by command basename + first arg basename (same
-    criterion as ``verify_install.check_zcode``).
-    """
-    zcode_config: Path = args.zcode_config.expanduser().resolve()
-    reminder = Path(__file__).resolve().parent / "light_rip_reminder.py"
+def install_antigravity(args: argparse.Namespace) -> int:
+    """Install the Light RIP reminder into ``~/.gemini/config/hooks.json``."""
+    hooks_path: Path = args.antigravity_hooks.expanduser().resolve()
+    hook_script = Path(__file__).resolve().parent / "light_rip_reminder.py"
     python_exe = Path(sys.executable).resolve()
 
     # Step 1: parse-before-backup.
-    existing, load_err = load_json_safe(zcode_config)
+    existing, load_err = load_json_safe(hooks_path)
     if load_err and load_err != "file_not_found":
         return _emit_error(
             "invalid_runtime_config", stage="load",
-            zcode_config=str(zcode_config),
+            hooks_path=str(hooks_path),
             detail=load_err,
-            hint=("fix or remove the corrupt config first; do NOT pass "
+            hint=("fix or remove the corrupt hooks.json first; do NOT pass "
                   "--force-backup because no good backup exists yet"),
         )
     if existing is None:
         existing = {}
 
-    # Step 2: build the new hooks block in memory (idempotent,
-    # no-clobber). ``setdefault`` only sets the key when absent, so
-    # a deliberate ``hooks.enabled: false`` is preserved.
-    hooks = existing.setdefault("hooks", {})
-    if not isinstance(hooks, dict):
-        hooks = {}
-        existing["hooks"] = hooks
-    hooks.setdefault("enabled", True)
-    hooks.setdefault("timeoutMs", 10000)
-    hooks.setdefault("maxOutputBytes", 4096)
-    events = hooks.setdefault("events", {})
-    if not isinstance(events, dict):
-        events = {}
-        hooks["events"] = events
-    ups_list = events.setdefault("UserPromptSubmit", [])
-    if not isinstance(ups_list, list):
-        ups_list = []
-        events["UserPromptSubmit"] = ups_list
-
-    # Step 2b: append (not replace) our entry; dedup any prior ours.
-    # NO ``matcher`` key — Zod's min(1) rejects empty strings and
-    # silently drops the whole hooks block. Omit it to match all
-    # prompts.
-    #
-    # ZCode schema (per asar source) is:
-    #   events.<Event>[i] = {matcher?, hooks: [<entry>]}
-    # i.e. each top-level slot is a *wrapper group* whose ``hooks``
-    # array carries the actual process entries. The verifier reads
-    # ``group.get("hooks")``; writing a flat entry directly under
-    # ``events.UserPromptSubmit[]`` would cause ``match_count`` to
-    # stay 0 forever. Wrap accordingly.
-    new_entry = {
-        "type": "process",
-        "command": str(python_exe),
-        "args": [str(reminder)],
-        "timeoutMs": 5000,
-    }
-    new_wrapper = {"hooks": [new_entry]}
-    ups_list[:] = [
-        e for e in ups_list
-        if not _is_our_zcode_entry(e, python_exe, reminder)
-    ]
-    ups_list.append(new_wrapper)
-
-    # Step 3: back up the (known-good) source.
+    # Step 2: back up the (known-good) source.
     backup_path: Path | None = None
     try:
-        backup_path = backup_file(zcode_config, force=args.force_backup)
+        backup_path = backup_file(hooks_path, force=args.force_backup)
     except BackupCollisionError as exc:
         return _emit_error(
             "backup_collision",
-            zcode_config=str(zcode_config),
+            hooks_path=str(hooks_path),
             backup_path=exc.backup_path,
             hint=("pass --force-backup to overwrite, or rename the "
                   "existing backup (recovery paths printed in the "
@@ -809,19 +697,22 @@ def install_zcode(args: argparse.Namespace) -> int:
     except OSError as exc:
         return _emit_error(
             "permission_or_io_error", stage="backup",
-            zcode_config=str(zcode_config),
+            hooks_path=str(hooks_path),
             detail=str(exc),
             hint=("check that the parent directory is writable; this "
                   "is a filesystem problem, not a same-day collision"),
         )
 
+    # Step 3: upsert under top-level hook name NAMESPACE, preserving other hooks.
+    existing[NAMESPACE] = build_antigravity_hook(python_exe, hook_script)
+
     # Step 4: atomic write.
     try:
-        atomic_write_json(zcode_config, existing)
+        atomic_write_json(hooks_path, existing)
     except OSError as exc:
         return _emit_error(
             "permission_or_io_error", stage="write",
-            zcode_config=str(zcode_config),
+            hooks_path=str(hooks_path),
             backup_path=str(backup_path) if backup_path else None,
             detail=str(exc),
             hint=("restore manually from the backup path above; the "
@@ -831,7 +722,7 @@ def install_zcode(args: argparse.Namespace) -> int:
 
     # Step 5: success record BEFORE the verifier.
     print(json.dumps({
-        "zcode_config": str(zcode_config),
+        "hooks_path": str(hooks_path),
         "hook": NAMESPACE,
         "backup_path": str(backup_path) if backup_path else None,
     }, ensure_ascii=True))
@@ -840,15 +731,15 @@ def install_zcode(args: argparse.Namespace) -> int:
     # Step 6: verifier.
     return _run_verifier(
         args,
-        verify_argv_extra=["--zcode-config", str(zcode_config)],
+        verify_argv_extra=["--antigravity-hooks", str(hooks_path)],
     )
 
 
 # Dispatch table.
 INSTALLERS = {
-    "claude": install_claude,
-    "codex":  install_codex,
-    "zcode":  install_zcode,
+    "claude":      install_claude,
+    "codex":       install_codex,
+    "antigravity": install_antigravity,
 }
 
 
@@ -1202,166 +1093,73 @@ def _self_test_codex_toml_byte_equal(t: _SelfTest, hooks_dir: Path) -> None:
                     cfg4.read_text(encoding="utf-8-sig"), original_quoted)
 
 
-def _self_test_python_launcher(t: _SelfTest, hooks_dir: Path) -> None:
-    """verify_install's _PY_LAUNCHER rejects non-interpreter names."""
-    verify_path = hooks_dir / "verify_install.py"
-    if verify_path.is_file():
-        # Re-use the verifier regex via a direct invocation by importing.
-        sys.path.insert(0, str(hooks_dir))
-        from verify_install import _PY_LAUNCHER  # type: ignore[import-not-found]
-        positives = ["py", "py.exe", "python.exe", "python3.12.exe"]
-        for name in positives:
-            t.assert_true(
-                f"_PY_LAUNCHER accepts {name!r}",
-                bool(_PY_LAUNCHER.match(name)),
-                f"got False",
-            )
-        negatives = [
-            "pythonw.exe", "mypython.exe",
-            "python3.12-config", "python3.12-config.exe",
-            "python_d.exe", "pythonw.exe", "pythonw_d.exe",
-        ]
-        for name in negatives:
-            t.assert_true(
-                f"_PY_LAUNCHER rejects {name!r}",
-                not bool(_PY_LAUNCHER.match(name)),
-                f"matched unexpectedly",
-            )
-        sys.path.pop(0)
-    else:
-        t.assert_true("verify_install.py present for launcher predicate", False,
-                      "missing")
-
-
-def _make_zcode_cfg(td: Path, name: str, *, command: str,
-                    type_value: str = "process",
-                    enabled: bool = True,
-                    include_matcher: bool = False,
-                    matcher_value: str = "",
-                    reminder_script: str | None = None) -> Path:
-    """Create a ZCode fixture config with the given shape.
-
-    ``reminder_script`` is the path that goes into ``args``. ``None``
-    (default) uses the actual on-disk ``light_rip_reminder.py``,
-    enough for the matcher below to verify ``REMINDER_SCRIPT_NAME``
-    appears in the arg blob.
-    """
-    if reminder_script is None:
-        reminder_script = str(
-            (Path(__file__).resolve().parent / "light_rip_reminder.py")
-        )
-    hooks_entry: dict = {
-        "type": type_value,
-        "command": command,
-        "args": [reminder_script],
-    }
-    if include_matcher:
-        hooks_entry["matcher"] = matcher_value
-    cfg = {
-        "hooks": {
-            "enabled": enabled,
-            "events": {
-                "UserPromptSubmit": [{
-                    "hooks": [hooks_entry],
-                }]
-            }
-        }
-    }
-    out = td / name
-    out.write_text(json.dumps(cfg), encoding="utf-8")
-    return out
-
-
-def _self_test_zcode_detector(t: _SelfTest, hooks_dir: Path) -> None:
-    """ZCode detector edge cases via verify_install."""
+def _self_test_antigravity_detector(t: _SelfTest, hooks_dir: Path) -> None:
+    """Antigravity detector edge cases and envelope format checks."""
     verify = hooks_dir / "verify_install.py"
     if not verify.is_file():
-        t.assert_true("zcode-detector: verify_install.py present", False, "missing")
+        t.assert_true("antigravity-detector: verify_install.py present", False, "missing")
         return
     sys.path.insert(0, str(hooks_dir))
-    from verify_install import check_zcode  # type: ignore[import-not-found]
+    from verify_install import check_antigravity  # type: ignore[import-not-found]
     sys.path.pop(0)
 
-    with tempfile.TemporaryDirectory(prefix="light-rip-selftest-zcode-") as td_str:
+    script_path = hooks_dir / "light_rip_reminder.py"
+    with tempfile.TemporaryDirectory(prefix="light-rip-selftest-agy-") as td_str:
         td = Path(td_str)
-        # R7: hooks.enabled=false is rejected (the entry exists but the
-        # hook layer is disabled → installed must read False).
-        bad_enabled = _make_zcode_cfg(td, "bad-enabled.json",
-                                       command="python.exe",
-                                       enabled=False)
-        state = check_zcode(bad_enabled)
-        t.assert_eq("zcode R7: hooks.enabled=false -> installed=False",
-                    state.get("installed"), False)
 
-        # R7: type != "process" is rejected (loader silently skips them).
-        wrong_type = _make_zcode_cfg(td, "wrong-type.json",
-                                      command="python.exe",
-                                      type_value="command")
-        state = check_zcode(wrong_type)
-        t.assert_eq("zcode R7: type=command -> match_count=0",
-                    state.get("match_count"), 0)
+        disabled_cfg = td / "disabled.json"
+        disabled_cfg.write_text(json.dumps({
+            NAMESPACE: {
+                "enabled": False,
+                "PreInvocation": [{"type": "command", "command": f'"{sys.executable}" "{script_path}" --format antigravity'}],
+            }
+        }), encoding="utf-8")
+        t.assert_eq("antigravity: enabled=false -> installed=False",
+                    check_antigravity(disabled_cfg).get("installed"), False)
 
-        # R7: command path that does NOT match PEP 394 regex (e.g. node.exe).
-        non_python = _make_zcode_cfg(td, "non-python.json",
-                                      command="C:/Windows/System32/node.exe")
-        state = check_zcode(non_python)
-        t.assert_eq("zcode R7: node.exe -> match_count=0",
-                    state.get("match_count"), 0)
+        missing_fmt_cfg = td / "missing-fmt.json"
+        missing_fmt_cfg.write_text(json.dumps({
+            NAMESPACE: {
+                "enabled": True,
+                "PreInvocation": [{"type": "command", "command": f'"{sys.executable}" "{script_path}"'}],
+            }
+        }), encoding="utf-8")
+        t.assert_eq("antigravity: missing --format antigravity -> match_count=0",
+                    check_antigravity(missing_fmt_cfg).get("match_count"), 0)
 
-        # Valid entry passes (no matcher key, command is sys.executable).
-        with tempfile.TemporaryDirectory() as atd:
-            good = _make_zcode_cfg(
-                Path(atd), "good.json",
-                command=str(Path(sys.executable).resolve()),
-            )
-            state = check_zcode(good)
-            t.assert_eq("zcode: valid entry installed=True",
-                        state.get("installed"), True)
+        wrong_type_cfg = td / "wrong-type.json"
+        wrong_type_cfg.write_text(json.dumps({
+            NAMESPACE: {
+                "enabled": True,
+                "PreInvocation": [{"type": "http", "command": f'"{sys.executable}" "{script_path}" --format antigravity'}],
+            }
+        }), encoding="utf-8")
+        t.assert_eq("antigravity: type=http -> match_count=0",
+                    check_antigravity(wrong_type_cfg).get("match_count"), 0)
 
-        # Zod min(1) trap: the installer's contract is "never write
-        # matcher=\"\"" and "no matcher is fine". Verify by reading the
-        # installer's actual output on a fresh tempdir install.
-        with tempfile.TemporaryDirectory(prefix="light-rip-selftest-zod-") as ztd:
-            zcfg = Path(ztd) / "config.json"
-            rc, _, _, _ = _run_subprocess(
-                [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
-                 "install",
-                 "--runtime", "zcode",
-                 "--zcode-config", str(zcfg),
-                 "--no-strict-verify"],
-            )
-            t.assert_eq("zcode matcher-trap: install ok", rc, 0)
-            zdata = json.loads(zcfg.read_text(encoding="utf-8-sig"))
-            entries = zdata["hooks"]["events"]["UserPromptSubmit"]
-            # Each wrapper group may carry a `hooks` array (the loader
-            # iterates group.hooks[]. The installer's standard shape is
-            # one outer group with one inner entry; either the inner
-            # entry or the wrapper group itself must NOT have a
-            # ``matcher`` key whose value is "".
-            def _walk(node, found):
-                if isinstance(node, dict):
-                    if "matcher" in node and node["matcher"] == "":
-                        found.append(node)
-                    for v in node.values():
-                        _walk(v, found)
-                elif isinstance(node, list):
-                    for v in node:
-                        _walk(v, found)
-            found: list = []
-            _walk(zdata, found)
-            t.assert_eq("zcode Zod trap: installer never writes matcher=\"\"",
-                        found, [])
-            # And confirm no matcher key at all in the freshly-written
-            # entry (the installer's contract).
-            entry = (
-                zdata["hooks"]["events"]["UserPromptSubmit"][0]
-                if zdata["hooks"]["events"]["UserPromptSubmit"]
-                else {}
-            )
-            # Walk one level of wrapper-group indirection if present.
-            inner = (entry.get("hooks", [{}]) or [{}])[0]
-            t.assert_eq("zcode Zod trap: written entry has no matcher key",
-                        "matcher" in inner, False)
+        good_cfg = td / "good.json"
+        good_cfg.write_text(json.dumps({
+            NAMESPACE: {
+                "PreInvocation": [{"command": f'"{sys.executable}" "{script_path}" --format antigravity'}],
+            }
+        }), encoding="utf-8")
+        t.assert_eq("antigravity: valid minimal entry -> installed=True",
+                    check_antigravity(good_cfg).get("installed"), True)
+
+        # Reminder script emits valid Antigravity PreInvocation injectSteps JSON.
+        completed = subprocess.run(
+            [sys.executable, str(script_path), "--format", "antigravity"],
+            input='{"hookEventName":"PreInvocation","invocationNum":1}',
+            capture_output=True, text=True, check=False,
+        )
+        t.assert_eq("antigravity reminder rc=0", completed.returncode, 0)
+        parsed = json.loads(completed.stdout)
+        steps = parsed.get("injectSteps", [])
+        msg = steps[0].get("systemMessage", {}).get("systemMessage", "") if steps else ""
+        t.assert_true("antigravity reminder emits injectSteps.systemMessage.systemMessage",
+                      "Evidence Before Claims" in msg, f"got {parsed!r}")
+        t.assert_eq("antigravity reminder emits terminationBehavior=''",
+                    parsed.get("terminationBehavior"), "")
 
 
 def _self_test_cross_runtime_flag(t: _SelfTest, hooks_dir: Path) -> None:
@@ -1390,23 +1188,10 @@ def _self_test_cross_runtime_flag(t: _SelfTest, hooks_dir: Path) -> None:
 
 
 def _self_test_install_verify_roundtrip(t: _SelfTest, hooks_dir: Path) -> None:
-    """Close the loop: installer writes -> verifier agrees.
-
-    Pre-1.0, the installer's ZCode branch wrote entries directly under
-    ``events.UserPromptSubmit[]`` while ``verify_install.check_zcode``
-    expected wrapper groups ``{hooks: [<entry>]}``. The mismatch was
-    silently tolerated by the smoke test (T-UNI-1/2 inspected the
-    installer's JSON directly, never via the verifier) and surfaced
-    only when an end user ran ``verify_install.py`` and got
-    ``match_count: 0`` for an install that had just reported success.
-
-    This round-trip contract — "an install the installer reports as
-    succeeded must be detectable as installed by the verifier" — is
-    the single most important contract on the whole installer. Run it
-    for every supported runtime; if any fails, ship-blocker.
-    """
+    """Close the loop: installer writes -> verifier agrees."""
     sys.path.insert(0, str(hooks_dir))
-    from verify_install import check_claude, check_codex, check_zcode
+    from verify_install import check_antigravity, check_claude, check_codex
+    sys.path.pop(0)
 
     with tempfile.TemporaryDirectory(prefix="light-rip-roundtrip-") as td:
         td = Path(td)
@@ -1443,30 +1228,29 @@ def _self_test_install_verify_roundtrip(t: _SelfTest, hooks_dir: Path) -> None:
         t.assert_eq("codex round-trip: verifier match_count=1",
                     result.get("match_count"), 1)
 
-        # --- ZCode round-trip (this is the bug that surfaced pre-fix) ---
-        zcode_cfg = td / "zcode.json"
+        # --- Antigravity round-trip (preserving unrelated existing hooks) ---
+        agy_hooks = td / "antigravity-hooks.json"
+        agy_hooks.write_text(json.dumps({
+            "other-hook": {"Stop": [{"type": "command", "command": "echo done"}]}
+        }), encoding="utf-8")
         rc, _, _, _ = _run_subprocess(
             [sys.executable, str(hooks_dir / "install_hook_based_harness.py"),
-             "install", "--runtime", "zcode",
-             "--zcode-config", str(zcode_cfg),
+             "install", "--runtime", "antigravity",
+             "--antigravity-hooks", str(agy_hooks),
              "--no-strict-verify"],
         )
-        t.assert_eq("zcode round-trip: install rc", rc, 0)
-        result = check_zcode(zcode_cfg)
-        t.assert_eq("zcode round-trip: verifier installed=True",
+        t.assert_eq("antigravity round-trip: install rc", rc, 0)
+        result = check_antigravity(agy_hooks)
+        t.assert_eq("antigravity round-trip: verifier installed=True",
                     result.get("installed"), True)
-        t.assert_eq("zcode round-trip: verifier match_count=1",
+        t.assert_eq("antigravity round-trip: verifier match_count=1",
                     result.get("match_count"), 1)
-        # Spot-check the wire shape too: top-level slot must be a
-        # wrapper group, not a flat entry.
-        import json as _json
-        cfg = _json.loads(zcode_cfg.read_text(encoding="utf-8"))
-        ups = cfg["hooks"]["events"]["UserPromptSubmit"]
-        t.assert_eq("zcode round-trip: exactly one top-level slot",
-                    len(ups), 1)
-        t.assert_eq("zcode round-trip: top-level slot has 'hooks' wrapper",
-                    isinstance(ups[0], dict) and isinstance(ups[0].get("hooks"), list),
-                    True)
+        written = json.loads(agy_hooks.read_text(encoding="utf-8"))
+        t.assert_true("antigravity round-trip: preserves other-hook",
+                      "other-hook" in written, f"keys={list(written.keys())}")
+        t.assert_true("antigravity round-trip: writes PreInvocation list",
+                      isinstance(written.get(NAMESPACE, {}).get("PreInvocation"), list),
+                      f"entry={written.get(NAMESPACE)!r}")
 
 
 def run_self_test(args: argparse.Namespace) -> int:
@@ -1489,11 +1273,8 @@ def run_self_test(args: argparse.Namespace) -> int:
         print("[PR-D: codex config.toml byte-equal preservation]")
         _self_test_codex_toml_byte_equal(t, hooks_dir)
         print()
-        print("[PEP 394/397 launcher predicate]")
-        _self_test_python_launcher(t, hooks_dir)
-        print()
-        print("[zcode detector edge cases]")
-        _self_test_zcode_detector(t, hooks_dir)
+        print("[antigravity detector & format]")
+        _self_test_antigravity_detector(t, hooks_dir)
         print()
         print("[cross-runtime flag rejection]")
         _self_test_cross_runtime_flag(t, hooks_dir)
@@ -1519,9 +1300,9 @@ def run_self_test(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Install the Light RIP reminder as a UserPromptSubmit "
-                    "hook on a hook-based agent runtime (Claude Code, Codex, "
-                    "or ZCode). Pick one with --runtime.",
+        description="Install the Light RIP reminder hook on a supported "
+                    "agent runtime (Claude Code, Codex, or Antigravity). "
+                    "Pick one with --runtime.",
     )
     subparsers = parser.add_subparsers(dest="action")
 
@@ -1532,7 +1313,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     install_p.add_argument(
         "--runtime",
-        choices=["claude", "codex", "zcode"],
+        choices=["claude", "codex", "antigravity"],
         required=True,
         help="Which agent runtime to install the Light RIP reminder hook into.",
     )
@@ -1554,11 +1335,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="(codex) Path to Codex config.toml. Default: ~/.codex/config.toml.",
     )
 
-    # ----- ZCode-specific (only meaningful under --runtime zcode) -----
+    # ----- Antigravity-specific (only meaningful under --runtime antigravity) -----
     install_p.add_argument(
-        "--zcode-config", type=Path, default=None,
-        help="(zcode) Path to ZCode config.json. Default: "
-             "~/.zcode/cli/config.json.",
+        "--antigravity-hooks", type=Path, default=None,
+        help="(antigravity) Path to Antigravity hooks.json. Default: "
+             "~/.gemini/config/hooks.json.",
     )
 
     # ----- Shared -----

@@ -7,16 +7,16 @@ description: Use when a coding task needs structured plan, implementation, verif
 
 Tiny coding tasks use this skill in the main session only. Medium and large coding tasks MUST use subagents as specified below.
 
-This repository is an agent skill package, not a software application. To install it, place this folder in the target agent's skills directory, then mount the required `UserPromptSubmit` reminder hook. Do not clone it as an app project or run it as a standalone service.
+This repository is an agent skill package, not a software application. To install it, place this folder in the target agent's skills directory, then mount the required reminder hook (`UserPromptSubmit` for Claude Code / Codex, `PreInvocation` for Antigravity). Do not clone it as an app project or run it as a standalone service.
 
-Installation is not complete until the reminder hook is mounted. If you install or update this skill, you MUST run the appropriate hook installer from inside the installed `light-rip` skill directory before telling the user installation is done:
+Installation is not complete until the reminder hook is mounted. If you install or update this skill, you MUST identify the current harness and run the matching installer from inside the installed `light-rip` skill directory before telling the user installation is done:
 
 - Claude Code: `python hooks/install_hook_based_harness.py install --runtime claude`
 - Codex: `python hooks/install_hook_based_harness.py install --runtime codex`
-- ZCode: `python hooks/install_hook_based_harness.py install --runtime zcode`
-- Any other agent: `python hooks/install_general_harness.py`. This prints a structured install prompt that the receiving agent executes by inspecting its own runtime and installing by analogy to the worked examples (OpenCode for the instructions path, ZCode for the hook path). The script itself does not write files.
+- Antigravity: `python hooks/install_hook_based_harness.py install --runtime antigravity`
+- Any other harness (e.g. ZCode, OpenCode, Cursor): `python hooks/install_general_harness.py`. Inspect your own harness's hook/prompt-injection mechanism, study how `hooks/install_hook_based_harness.py` and `hooks/light_rip_reminder.py` adapt the three supported harnesses, design the cleanest adaptation, and ask the user for confirmation before modifying config files.
 
-After the install (whichever path), confirm with `python hooks/verify_install.py`. The dedicated Claude Code and Codex installers run this verifier automatically at the end of their own run.
+After the install (whichever path), confirm with `python hooks/verify_install.py`. The dedicated installers run this verifier automatically at the end of their own run.
 
 Do not present hook installation as optional. The hook is part of the default installation.
 

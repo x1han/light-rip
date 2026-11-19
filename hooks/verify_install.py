@@ -34,10 +34,10 @@ Output:
     `checks` (script-side) and `runtime_checks` (per-runtime state)
 
 Per-runtime path overrides (CI / sandbox use):
-  --claude-settings PATH   default ~/.claude/settings.json
-  --codex-hooks PATH       default ~/.codex/hooks.json
-  --codex-config PATH      default ~/.codex/config.toml
-  --zcode-config PATH      default ~/.zcode/cli/config.json
+  --claude-settings PATH     default ~/.claude/settings.json
+  --codex-hooks PATH         default ~/.codex/hooks.json
+  --codex-config PATH        default ~/.codex/config.toml
+  --antigravity-hooks PATH   default ~/.gemini/config/hooks.json
 
 Probe forwarding:
   When the parent process has LIGHT_RIP_PROBE=1, the verifier forwards
@@ -49,7 +49,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -81,20 +80,6 @@ except ImportError:
 REMINDER_MARKER = "Evidence Before Claims"
 REMINDER_SCRIPT_NAME = "light_rip_reminder.py"
 
-# PEP 394 (POSIX blessed names) + PEP 397 (Windows Python launcher).
-# Matches `python`, `python2`, `python3`, `python3.12`, `py`, `py3`,
-# with or without a `.exe` suffix. Explicitly rejects `pythonw` (GUI
-# launcher — doesn't allocate a console, may not run console scripts
-# reliably), `python_d` / `pythonw_d` (debug builds), `mypython`,
-# `python3.12-config`, `py-config`, and arbitrary names. Anchored on
-# the full filename via `cmd_path.name` so `python3.12-config.exe`
-# is not silently reduced to stem `python3.12` and accepted.
-# Case-insensitive because Windows filenames are case-insensitive.
-_PY_LAUNCHER = re.compile(
-    r"^(?:python(?:2|3(?:\.\d+)?)?|py\d*)(?:\.exe)?$",
-    re.IGNORECASE,
-)
-
 
 # ---------- path resolution ----------
 
@@ -122,8 +107,8 @@ def default_codex_config() -> Path:
     return Path.home() / ".codex" / "config.toml"
 
 
-def default_zcode_config() -> Path:
-    return Path.home() / ".zcode" / "cli" / "config.json"
+def default_antigravity_hooks() -> Path:
+    return Path.home() / ".gemini" / "config" / "hooks.json"
 
 
 # ---------- check primitives ----------
@@ -186,66 +171,86 @@ def check_reminder_md_readable() -> dict:
                  f"{path} ({len(text)} bytes)")
 
 
-def check_reminder_script_spawn() -> dict:
-    """Spawn light_rip_reminder.py with simulated stdin and verify it
-    exits 0 and emits the reminder marker. Uses --format harness which
-    is the default Claude/Codex envelope; the script-side wiring is
-    format-independent (the format only affects the envelope shape
-    ZCode parses, not whether the script can spawn and emit content)."""
+def _spawn_reminder_script(fmt: str, payload: str) -> tuple[bool, str]:
+    """Spawn light_rip_reminder.py with --format <fmt> and validate stdout."""
     script = reminder_script_path()
     if not script.is_file():
-        return check("reminder script exists", False, f"missing at {script}")
+        return False, f"missing at {script}"
 
-    payload = '{"input":{"prompt":"hi"},"output":{}}'
     try:
         completed = subprocess.run(
-            [sys.executable, str(script), "--format", "harness"],
+            [sys.executable, str(script), "--format", fmt],
             input=payload,
             capture_output=True,
             text=True,
             timeout=10,
         )
     except subprocess.TimeoutExpired:
-        return check("reminder script runnable", False,
-                     f"`python {script}` timed out after 10s")
+        return False, f"`python {script}` timed out after 10s"
     except OSError as exc:
-        return check("reminder script runnable", False,
-                     f"spawn failed: {exc}")
+        return False, f"spawn failed: {exc}"
 
-    # Forward probe stderr if probe mode is active in the parent env.
-    # Otherwise the user loses the trace inside the verifier.
     if os.environ.get("LIGHT_RIP_PROBE") == "1" and completed.stderr:
         sys.stderr.write(completed.stderr)
         sys.stderr.flush()
 
     if completed.returncode != 0:
-        return check(
-            "reminder script runnable",
-            False,
+        return False, (
             f"exit code {completed.returncode}; "
-            f"stderr: {completed.stderr.strip()[:200]}",
+            f"stderr: {completed.stderr.strip()[:200]}"
         )
     stdout = completed.stdout
     if not stdout.strip():
-        return check("reminder script runnable", False, "stdout was empty")
-    if REMINDER_MARKER not in stdout:
-        return check(
-            "reminder script runnable",
-            False,
-            f"stdout did not contain marker {REMINDER_MARKER!r}; "
-            f"first 200 chars: {stdout[:200]!r}",
+        return False, "stdout was empty"
+    try:
+        parsed = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        return False, f"stdout was not valid JSON: {exc}"
+    if not isinstance(parsed, dict):
+        return False, f"stdout JSON root was {type(parsed).__name__}, expected object"
+    if fmt == "antigravity":
+        steps = parsed.get("injectSteps")
+        msg = (
+            steps[0].get("systemMessage", {}).get("systemMessage", "")
+            if isinstance(steps, list) and steps and isinstance(steps[0], dict)
+            and isinstance(steps[0].get("systemMessage"), dict)
+            else ""
         )
-    return check(
-        "reminder script runnable",
-        True,
-        f"`{script.name}` exited 0, stdout {len(stdout)} bytes, marker present",
+        if not isinstance(msg, str) or REMINDER_MARKER not in msg:
+            return False, (
+                f"antigravity injectSteps[0].systemMessage.systemMessage missing "
+                f"marker {REMINDER_MARKER!r}"
+            )
+    elif REMINDER_MARKER not in stdout:
+        return False, (
+            f"stdout did not contain marker {REMINDER_MARKER!r}; "
+            f"first 200 chars: {stdout[:200]!r}"
+        )
+    return True, f"`{script.name}` (--format {fmt}) exited 0, stdout {len(stdout)} bytes, marker present"
+
+
+def check_reminder_script_spawn() -> dict:
+    """Spawn light_rip_reminder.py with simulated stdin for harness format."""
+    ok, detail = _spawn_reminder_script(
+        "harness", '{"input":{"prompt":"hi"},"output":{}}'
     )
+    return check("reminder script runnable", ok, detail)
+
+
+def check_reminder_script_antigravity() -> dict:
+    """Spawn light_rip_reminder.py with simulated PreInvocation stdin for antigravity format."""
+    ok, detail = _spawn_reminder_script(
+        "antigravity",
+        '{"hookEventName":"PreInvocation","invocationNum":1,"lastUserInput":"hi"}',
+    )
+    return check("reminder script runnable (antigravity)", ok, detail)
 
 
 def run_script_checks() -> list[dict]:
     return [
         check_reminder_md_readable(),
         check_reminder_script_spawn(),
+        check_reminder_script_antigravity(),
     ]
 
 
@@ -392,102 +397,55 @@ def check_codex(hooks_path: Path, config_path: Path) -> dict:
     }
 
 
-def check_zcode(config_path: Path) -> dict:
+def check_antigravity(hooks_path: Path) -> dict:
     base = {
-        "path": str(config_path),
+        "path": str(hooks_path),
         "probed": False,
         "installed": False,
         "match_count": 0,
     }
-    cfg, err = _safe_load_json(config_path)
+    cfg, err = _safe_load_json(hooks_path)
     if err == "file_not_found":
         return {**base, "skipped_reason": "file_not_found"}
     if err:
         return {**base, "probed": True, "corrupt": True,
-                "detail": f"runtime config corrupt: {err}{_backup_hint(config_path)}"}
+                "detail": f"runtime config corrupt: {err}{_backup_hint(hooks_path)}"}
     if not isinstance(cfg, dict):
         return {**base, "probed": True, "corrupt": True,
-                "detail": f"runtime config root is not a JSON object{_backup_hint(config_path)}"}
-    hooks = cfg.get("hooks")
-    if not isinstance(hooks, dict):
+                "detail": f"runtime config root is not a JSON object{_backup_hint(hooks_path)}"}
+
+    entry = cfg.get(NAMESPACE)
+    if not isinstance(entry, dict):
         return {**base, "probed": True,
-                "detail": "no `hooks` block in runtime config"}
-    # ZCode's schema (verified via asar source) requires `hooks.enabled`
-    # to be true for the hook layer to load at all. A config with the
-    # entry present but `hooks.enabled: false` does NOT actually fire.
-    # Earlier this check was missing, which caused false-positive
-    # "installed" reports whenever the entry existed regardless of the
-    # toggle.
-    enabled = hooks.get("enabled")
-    if enabled is not True:
+                "detail": f"no `{NAMESPACE}` entry in {hooks_path}"}
+    if entry.get("enabled", True) is not True:
         return {**base, "probed": True,
-                "detail": ("`hooks.enabled` is not true; ZCode will not "
-                           "fire hooks regardless of entries below")}
-    events = hooks.get("events")
-    ups_groups = (events.get("UserPromptSubmit")
-                  if isinstance(events, dict) else None)
-    if not isinstance(ups_groups, list):
+                "detail": f"`{NAMESPACE}.enabled` is false in {hooks_path}"}
+
+    pre_inv = entry.get("PreInvocation")
+    if not isinstance(pre_inv, list):
         return {**base, "probed": True,
-                "detail": "no `hooks.events.UserPromptSubmit` entry"}
+                "detail": f"no `{NAMESPACE}.PreInvocation` list in {hooks_path}"}
+
     count = 0
-    for group in ups_groups:
-        if not isinstance(group, dict):
+    for handler in pre_inv:
+        if not isinstance(handler, dict):
             continue
-        entries = group.get("hooks")
-        if not isinstance(entries, list):
+        if str(handler.get("type", "command")) != "command":
             continue
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            # ZCode's main hook path silently skips entries whose type
-            # is not "process". Earlier this check was missing, so a
-            # "command"-type entry (which the loader would discard)
-            # could still count as installed.
-            if str(entry.get("type", "")) != "process":
-                continue
-            cmd = str(entry.get("command", ""))
-            args = entry.get("args", [])
-            arg_blob = (" ".join(str(a) for a in args)
-                        if isinstance(args, list) else str(args))
-            # Require BOTH: command basename looks like a Python
-            # interpreter AND args contains our script filename.
-            #
-            # The earlier predicate (`cmd.endswith(".exe") or "python"
-            # in cmd`) accepted any tool whose path ended in `.exe`
-            # (e.g. `node.exe`, `powershell.exe`) — every Windows
-            # process path matches. We now anchor on the PEP 394 +
-            # PEP 397 blessed names via `_PY_LAUNCHER` (defined at
-            # module top), which accepts `python`, `python2`,
-            # `python3`, `python3.12`, `py`, `py3`, each with or
-            # without a `.exe` suffix, and explicitly rejects
-            # `pythonw`, `python_d`, `pythonw_d`, `mypython`,
-            # `python3.12-config`, `py-config`, and arbitrary names.
-            #
-            # Use `cmd_path.name` (not `cmd_path.stem`) so the regex
-            # sees the full filename including `.exe`. Otherwise
-            # `Path("python3.12-config.exe").stem == "python3.12"` and
-            # the dev tool would be falsely accepted as an interpreter.
-            cmd_path = Path(cmd) if cmd else Path("")
-            cmd_name = cmd_path.name
-            cmd_is_python = bool(_PY_LAUNCHER.match(cmd_name))
-            if cmd_is_python and REMINDER_SCRIPT_NAME in arg_blob:
-                count += 1
+        cmd = str(handler.get("command", ""))
+        has_script = REMINDER_SCRIPT_NAME in cmd
+        has_format = ("--format antigravity" in cmd) or ("--format=antigravity" in cmd)
+        if has_script and has_format:
+            count += 1
+
     return {
         **base,
         "probed": True,
         "match_count": count,
         "installed": count == 1,
-        "detail": _zcode_detail(config_path, count),
+        "detail": _claude_codex_detail(hooks_path, count),
     }
-
-
-def _zcode_detail(path: Path, count: int) -> str:
-    if count > 1:
-        return (f"ambiguous: {count} Light RIP entries in {path}; "
-                "remove duplicates — runtime may pick the wrong one")
-    if count == 1:
-        return f"Light RIP entry found in {path}"
-    return f"{path} exists but no Light RIP entry (incomplete install)"
 
 
 # ---------- orchestration ----------
@@ -499,8 +457,8 @@ def run_runtime_checks(runtime: str, paths: dict) -> dict:
         out["claude"] = check_claude(paths["claude_settings"])
     if runtime in ("all", "codex"):
         out["codex"] = check_codex(paths["codex_hooks"], paths["codex_config"])
-    if runtime in ("all", "zcode"):
-        out["zcode"] = check_zcode(paths["zcode_config"])
+    if runtime in ("all", "antigravity"):
+        out["antigravity"] = check_antigravity(paths["antigravity_hooks"])
     if runtime != "all" and runtime in out:
         out = {runtime: out[runtime]}
     return out
@@ -594,10 +552,10 @@ def render_human(script_checks: list[dict], runtime_checks: dict,
             ct = state["config_toml"]
             lines.append(f"         config.toml — {ct.get('detail', '')}")
     if not any_probed:
-        lines.append(f"  (no runtime config files found at default locations — "
+        lines.append("  (no runtime config files found at default locations — "
                      "install with install_hook_based_harness.py install "
-                     "--runtime claude|codex|zcode, or follow the OpenCode worked "
-                     "example printed by install_general_harness.py)")
+                     "--runtime claude|codex|antigravity, or inspect your "
+                     "harness via install_general_harness.py)")
     return "\n".join(lines) + "\n"
 
 
@@ -626,7 +584,7 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true",
                         help="Emit JSON instead of human-readable text.")
-    parser.add_argument("--runtime", choices=["claude", "codex", "zcode", "all"],
+    parser.add_argument("--runtime", choices=["claude", "codex", "antigravity", "all"],
                         default="all",
                         help="Which runtime to verify (default: all). "
                              "Strict when a specific name is given: "
@@ -641,16 +599,16 @@ def main() -> int:
     parser.add_argument("--codex-config", type=Path,
                         default=default_codex_config(),
                         help="Path to Codex config.toml (override).")
-    parser.add_argument("--zcode-config", type=Path,
-                        default=default_zcode_config(),
-                        help="Path to ZCode config.json (override).")
+    parser.add_argument("--antigravity-hooks", type=Path,
+                        default=default_antigravity_hooks(),
+                        help="Path to Antigravity hooks.json (override).")
     args = parser.parse_args()
 
     paths = {
         "claude_settings": args.claude_settings,
         "codex_hooks": args.codex_hooks,
         "codex_config": args.codex_config,
-        "zcode_config": args.zcode_config,
+        "antigravity_hooks": args.antigravity_hooks,
     }
 
     script_checks = run_script_checks()

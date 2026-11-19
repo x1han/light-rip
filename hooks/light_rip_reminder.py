@@ -2,27 +2,23 @@
 """Shared Light RIP reminder, multi-runtime adapter.
 
 Reads `reminder.md` next to the skill and emits the JSON envelope that
-each supported agent runtime expects from a UserPromptSubmit hook:
+each supported agent runtime expects from its prompt/invocation hook:
 
-  - harness   (default; Claude Code / Codex / ZCode) — keep the user
-              prompt, inject the reminder as
-              `hookSpecificOutput.additionalContext`. ZCode also parses
-              this envelope via its generic hook layer.
-  - zcode     (DEPRECATED — kept for back-compat with installs prior
-              to 1.0; use `harness` which ZCode also parses via its
-              generic hook layer)
+  - harness     (default; Claude Code / Codex) — keep the user prompt,
+                inject the reminder as `hookSpecificOutput.additionalContext`.
+  - antigravity Antigravity `PreInvocation` / `SessionStart` — inject the
+                reminder as a `systemMessage` step in `injectSteps`.
 
 The reminder file is the single source of truth. Each runtime has a
-thin installer that registers this script as its UserPromptSubmit hook.
+thin installer that registers this script as its hook.
 Adding a new runtime = adding one entry to FORMATS.
 
-Hook contract (script type, all runtimes):
-  - The runtime passes {"input": ..., "output": ...} as JSON on stdin.
-  - The script prints a JSON object on stdout; the runtime merges
-    printed fields into the `output` envelope.
-  - Empty / invalid stdout is a silent no-op (original output kept).
-  - Non-zero exit / timeout is isolated and logged; later hooks still
-    run. We fail open: missing `reminder.md` does not block the prompt.
+Hook contract (command type, all runtimes):
+  - The runtime passes a JSON payload on stdin.
+  - The script prints a JSON object on stdout.
+  - Empty / invalid stdout is a silent no-op.
+  - Non-zero exit / timeout is isolated by the runtime. We fail open:
+    missing `reminder.md` does not block the prompt.
 
 Probe mode:
   - When env var `LIGHT_RIP_PROBE=1` is set, the script writes a
@@ -65,12 +61,12 @@ def load_reminder() -> str:
 def _original_prompt(payload: dict) -> str:
     """Return the user's prompt text from a runtime payload, defensively.
 
-    Currently no adapter reads this (harness/zcode inject via
-    `additionalContext`), but `load_payload()` may legitimately return
-    non-dict values when the runtime passes a list, string, or other
-    JSON top-level. Guard against both shapes (non-dict payload,
-    non-dict `input` field) so a malformed runtime envelope does not
-    crash the hook.
+    Currently no adapter reads this (harness injects via
+    `additionalContext` and antigravity via `injectSteps`), but
+    `load_payload()` may legitimately return non-dict values when the
+    runtime passes a list, string, or other JSON top-level. Guard against
+    both shapes (non-dict payload, non-dict `input` field) so a
+    malformed runtime envelope does not crash the hook.
     """
     if not isinstance(payload, dict):
         return ""
@@ -95,28 +91,29 @@ def _format_harness(payload: dict, reminder: str) -> dict:
     }
 
 
-def _format_zcode(payload: dict, reminder: str) -> dict:
-    """ZCode strict-schema envelope.
+def _format_antigravity(payload: dict, reminder: str) -> dict:
+    """Antigravity PreInvocation / SessionStart envelope.
 
-    ZCode validates the hook stdout against a strict JSON schema and
-    drops the entire entry on any extra top-level key (per the
-    `diagnosing-hooks` skill shipped with ZCode 0.1.0+). The only
-    documented text-injection field is `additionalContext`. We emit
-    exactly that and nothing else — no `continue`, no
-    `suppressOutput`, no `hookSpecificOutput` wrapper.
-
-    This shape is the **empirically untested minimum**. If ZCode
-    actually requires additional fields (e.g. an explicit event name
-    wrapper), the next stage of investigation will surface that and
-    this function will be amended.
+    Antigravity expects `injectSteps` containing a nested
+    `{"systemMessage": {"systemMessage": "<text>"}}` object and an
+    optional `terminationBehavior` (`""` proceeds to the model call).
     """
-    return {"additionalContext": reminder}
+    return {
+        "injectSteps": [
+            {
+                "systemMessage": {
+                    "systemMessage": reminder,
+                }
+            }
+        ],
+        "terminationBehavior": "",
+    }
 
 
 # Dispatch table. New runtimes plug in here.
 FORMATS: dict[str, Callable[[dict, str], dict]] = {
     "harness": _format_harness,
-    "zcode": _format_zcode,
+    "antigravity": _format_antigravity,
 }
 
 
@@ -131,13 +128,13 @@ def build_output(fmt: str, payload: dict, reminder: str) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Inject the Light RIP reminder into a UserPromptSubmit hook payload."
+        description="Inject the Light RIP reminder into a prompt/invocation hook payload."
     )
     parser.add_argument(
         "--format",
         choices=sorted(FORMATS.keys()),
         default="harness",
-        help="Agent runtime output format. `harness` (default) for Claude Code / Codex / ZCode. `zcode` is deprecated — kept for back-compat with pre-1.0 installs.",
+        help="Agent runtime output format. `harness` (default) for Claude Code / Codex; `antigravity` for Antigravity PreInvocation.",
     )
     args = parser.parse_args()
 
@@ -148,7 +145,10 @@ def main() -> int:
         # Fail open: missing or non-UTF-8 reminder must not block the prompt.
         # UnicodeDecodeError is a ValueError subclass, not OSError, so it
         # needs to be listed explicitly to honor the fail-open contract.
-        envelope = {"metadata": {"light_rip_error": f"reminder_unreadable: {exc}"}}
+        if args.format == "antigravity":
+            envelope = {"injectSteps": [], "terminationBehavior": ""}
+        else:
+            envelope = {"metadata": {"light_rip_error": f"reminder_unreadable: {exc}"}}
         stdout_text = json.dumps(envelope, ensure_ascii=True)
         sys.stdout.write(stdout_text + "\n")
         sys.stdout.flush()
