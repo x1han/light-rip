@@ -1,4 +1,13 @@
-![Light RIP](assets/light-rip-workflow.jpg)
+<div align="center">
+  <img src="assets/light-rip-logo.jpg" alt="Light RIP" width="180" />
+  <h1><strong>Light RIP</strong></h1>
+  <p>Plan · Implement · Review</p>
+  <br /><br />
+  <img src="assets/light-rip-workflow.png" alt="" />
+  <br /><br />
+</div>
+
+## Introduction
 
 Light RIP is an agent skill package, not a software application.
 
